@@ -1,0 +1,63 @@
+import "dotenv/config";
+import express from "express";
+import session from "express-session";
+import connectPgSimple from "connect-pg-simple";
+import helmet from "helmet";
+import cors from "cors";
+import passport from "./auth";
+import { registerRoutes } from "./routes";
+
+const app = express();
+const PgSession = connectPgSimple(session);
+
+app.use(helmet());
+app.use(
+  cors({
+    origin: process.env.PRODUCTION_URL,
+    credentials: true,
+  })
+);
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true }));
+
+app.use(
+  session({
+    store: new PgSession({
+      conString: process.env.DATABASE_URL_PRODUCTION ?? process.env.DATABASE_URL,
+      createTableIfMissing: true,
+    }),
+    secret: process.env.SESSION_SECRET!,
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax",
+    },
+  })
+);
+
+app.use(passport.initialize());
+app.use(passport.session());
+
+app.get("/auth/google", passport.authenticate("google"));
+app.get(
+  "/auth/callback",
+  passport.authenticate("google", { failureRedirect: "/?error=auth_failed" }),
+  (_req, res) => res.redirect("/")
+);
+app.post("/auth/logout", (req, res) => {
+  req.logout(() => res.json({ ok: true }));
+});
+
+const router = express.Router();
+registerRoutes(router);
+app.use(router);
+
+app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error("Unhandled error:", err);
+  res.status(500).json({ message: "Something went wrong. Please try again." });
+});
+
+export default app;
