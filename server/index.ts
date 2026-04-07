@@ -6,6 +6,10 @@ import helmet from "helmet";
 import cors from "cors";
 import passport from "./auth";
 import { registerRoutes } from "./routes";
+import { registerXeroRoutes } from "./xeroImport";
+import { registerPnpRoutes } from "./pnpProcess";
+import { registerXeroAuthRoutes } from "./xeroAuth";
+import { registerOpeningBalanceRoutes } from "./openingBalanceImport";
 
 const app = express();
 const PgSession = connectPgSimple(session);
@@ -84,13 +88,18 @@ app.use(passport.initialize());
 app.use(passport.session());
 
 // ─── Auth Routes ───────────────────────────────────────
+const clientUrl =
+  process.env.NODE_ENV === "production" ? "/" : "http://localhost:5173";
+
 app.get("/auth/google", passport.authenticate("google"));
 
 app.get(
   "/auth/callback",
-  passport.authenticate("google", { failureRedirect: "/?error=auth_failed" }),
+  passport.authenticate("google", {
+    failureRedirect: `${clientUrl}?error=auth_failed`,
+  }),
   (_req, res) => {
-    res.redirect("/");
+    res.redirect(clientUrl);
   }
 );
 
@@ -103,6 +112,10 @@ app.post("/auth/logout", (req, res) => {
 // ─── API Routes ────────────────────────────────────────
 const router = express.Router();
 registerRoutes(router);
+registerXeroRoutes(router);
+registerXeroAuthRoutes(router);
+registerPnpRoutes(router);
+registerOpeningBalanceRoutes(router);
 app.use(router);
 
 // ─── Error Handler ─────────────────────────────────────

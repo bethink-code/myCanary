@@ -5,6 +5,18 @@ import { useQueryClient } from "@tanstack/react-query";
 import Landing from "./pages/Landing";
 import Dashboard from "./pages/Dashboard";
 import Admin from "./pages/Admin";
+import StockManagement from "./pages/StockManagement";
+import ProductDetail from "./pages/ProductDetail";
+import DeliveryReceipt from "./pages/DeliveryReceipt";
+import ReorderWorkflow from "./pages/ReorderWorkflow";
+import XeroImport from "./pages/XeroImport";
+import TransferStock from "./pages/TransferStock";
+import OrderList from "./pages/OrderList";
+import OrderDetail from "./pages/OrderDetail";
+import PnpWeekly from "./pages/PnpWeekly";
+import OpeningBalance from "./pages/OpeningBalance";
+import Settings from "./pages/Settings";
+import NotificationBell from "./components/NotificationBell";
 import NotFound from "./pages/not-found";
 import { useState } from "react";
 
@@ -52,14 +64,29 @@ function AppLayout() {
                 <Link to="/" className="text-sm text-slate-600 hover:text-slate-900">
                   Dashboard
                 </Link>
+                <Link to="/stock" className="text-sm text-slate-600 hover:text-slate-900">
+                  Stock Levels
+                </Link>
+                <Link to="/orders" className="text-sm text-slate-600 hover:text-slate-900">
+                  Orders
+                </Link>
+                <Link to="/pnp" className="text-sm text-slate-600 hover:text-slate-900">
+                  PnP Weekly
+                </Link>
                 {isAdmin && (
-                  <Link to="/admin" className="text-sm text-slate-600 hover:text-slate-900">
-                    Admin
+                  <Link to="/xero/import" className="text-sm text-slate-600 hover:text-slate-900">
+                    Stock Out: Xero
+                  </Link>
+                )}
+                {isAdmin && (
+                  <Link to="/settings" className="text-sm text-slate-600 hover:text-slate-900">
+                    Settings
                   </Link>
                 )}
               </div>
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
+              <NotificationBell />
               <span className="text-sm text-slate-500">{user?.email}</span>
               <button
                 onClick={handleLogout}
@@ -74,6 +101,18 @@ function AppLayout() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Routes>
           <Route path="/" element={<Dashboard />} />
+          <Route path="/stock" element={<StockManagement />} />
+          <Route path="/stock/product/:skuCode" element={<ProductDetail />} />
+          <Route path="/stock/reorder" element={<ReorderWorkflow />} />
+          <Route path="/stock/transfer" element={<TransferStock />} />
+          <Route path="/orders" element={<OrderList />} />
+          <Route path="/orders/new" element={<OrderDetail />} />
+          <Route path="/orders/:id" element={<OrderDetail />} />
+          <Route path="/pnp" element={<PnpWeekly />} />
+          {isAdmin && <Route path="/stock/delivery" element={<DeliveryReceipt />} />}
+          {isAdmin && <Route path="/stock/opening-balance" element={<OpeningBalance />} />}
+          {isAdmin && <Route path="/xero/import" element={<XeroImport />} />}
+          {isAdmin && <Route path="/settings" element={<Settings />} />}
           {isAdmin && <Route path="/admin" element={<Admin />} />}
           <Route path="*" element={<NotFound />} />
         </Routes>

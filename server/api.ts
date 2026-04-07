@@ -6,6 +6,10 @@ import helmet from "helmet";
 import cors from "cors";
 import passport from "./auth";
 import { registerRoutes } from "./routes";
+import { registerXeroRoutes } from "./xeroImport";
+import { registerPnpRoutes } from "./pnpProcess";
+import { registerXeroAuthRoutes } from "./xeroAuth";
+import { registerOpeningBalanceRoutes } from "./openingBalanceImport";
 
 const app = express();
 const PgSession = connectPgSimple(session);
@@ -53,6 +57,10 @@ app.post("/auth/logout", (req, res) => {
 
 const router = express.Router();
 registerRoutes(router);
+registerXeroRoutes(router);
+registerXeroAuthRoutes(router);
+registerPnpRoutes(router);
+registerOpeningBalanceRoutes(router);
 app.use(router);
 
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

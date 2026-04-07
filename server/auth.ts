@@ -2,13 +2,23 @@ import passport from "passport";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import { findUserByEmail, createUser, isEmailInvited } from "./storage";
 
+// Store Google tokens alongside email in session
 passport.serializeUser((user: any, done) => {
-  done(null, user.email);
+  done(null, {
+    email: user.email,
+    googleAccessToken: user.googleAccessToken,
+    googleRefreshToken: user.googleRefreshToken,
+  });
 });
 
-passport.deserializeUser(async (email: string, done) => {
+passport.deserializeUser(async (sessionData: any, done) => {
   try {
+    const email = typeof sessionData === "string" ? sessionData : sessionData.email;
     const user = await findUserByEmail(email);
+    if (user && typeof sessionData === "object") {
+      (user as any).googleAccessToken = sessionData.googleAccessToken;
+      (user as any).googleRefreshToken = sessionData.googleRefreshToken;
+    }
     done(null, user);
   } catch (err) {
     done(err, null);
@@ -21,9 +31,16 @@ passport.use(
       clientID: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
       callbackURL: "/auth/callback",
-      scope: ["profile", "email"],
-    },
-    async (_accessToken, _refreshToken, profile, done) => {
+      scope: [
+        "profile",
+        "email",
+        "https://www.googleapis.com/auth/spreadsheets.readonly",
+        "https://www.googleapis.com/auth/drive.readonly",
+      ],
+      accessType: "offline",
+      prompt: "consent",
+    } as any,
+    async (accessToken: string, refreshToken: string, profile: any, done: any) => {
       try {
         const email = profile.emails?.[0]?.value;
         if (!email) {
@@ -52,6 +69,10 @@ passport.use(
             profileImageUrl: profile.photos?.[0]?.value ?? null,
           });
         }
+
+        // Store Google tokens for Sheets/Drive API access
+        (user as any).googleAccessToken = accessToken;
+        (user as any).googleRefreshToken = refreshToken;
 
         return done(null, user);
       } catch (err) {
