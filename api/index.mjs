@@ -847,11 +847,14 @@ function registerRoutes(router2) {
         if (reorderPoint !== null) {
           if (currentStock <= reorderPoint) {
             status = "REORDER";
-            const dailySales = (salesMap[p.skuCode] || 0) / 365;
-            recommendedOrderQty = Math.ceil(dailySales * 75);
-            if (recommendedOrderQty === 0) recommendedOrderQty = null;
+            const targetStock = reorderPoint * 2;
+            const gap = targetStock - currentStock;
+            recommendedOrderQty = gap > 0 ? gap : 1;
           } else if (currentStock <= reorderPoint * 1.25) {
             status = "APPROACHING";
+            const targetStock = reorderPoint * 2;
+            const gap = targetStock - currentStock;
+            recommendedOrderQty = gap > 0 ? gap : null;
           }
         }
         return {

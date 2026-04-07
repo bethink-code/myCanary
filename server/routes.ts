@@ -606,12 +606,16 @@ export function registerRoutes(router: Router) {
         if (reorderPoint !== null) {
           if (currentStock <= reorderPoint) {
             status = "REORDER";
-            // Recommend ordering enough to cover 75 days of sales above RP
-            const dailySales = (salesMap[p.skuCode] || 0) / 365;
-            recommendedOrderQty = Math.ceil(dailySales * 75);
-            if (recommendedOrderQty === 0) recommendedOrderQty = null;
+            // PRD Section 6.4: Target = RP × 2, Gap = Target − Current
+            const targetStock = reorderPoint * 2;
+            const gap = targetStock - currentStock;
+            recommendedOrderQty = gap > 0 ? gap : 1;
           } else if (currentStock <= reorderPoint * 1.25) {
             status = "APPROACHING";
+            // Still calculate a recommended qty for approaching items
+            const targetStock = reorderPoint * 2;
+            const gap = targetStock - currentStock;
+            recommendedOrderQty = gap > 0 ? gap : null;
           }
         }
 
