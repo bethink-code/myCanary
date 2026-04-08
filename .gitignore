@@ -6,3 +6,4 @@ dist/
 Thumbs.db
 *.code-workspace
 .vscode/
+*.xlsx
