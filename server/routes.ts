@@ -1304,7 +1304,35 @@ export function registerRoutes(router: Router) {
         overallStatus = "HEADS_UP";
       }
 
-      res.json({ items, overallStatus });
+      // Data freshness: when was stock data last updated?
+      const ledgerRow = await db.select().from(systemSettings)
+        .where(and(eq(systemSettings.clientId, clientId), eq(systemSettings.key, "ledger_start_date")))
+        .limit(1);
+      const lastTxnRow = await db.select({ maxDate: sql<string>`max(${stockTransactions.createdAt})` })
+        .from(stockTransactions)
+        .where(eq(stockTransactions.clientId, clientId));
+      const lastSalesRow = await db.select({ maxRef: sql<string>`max(${stockTransactions.reference})` })
+        .from(stockTransactions)
+        .where(and(
+          eq(stockTransactions.clientId, clientId),
+          eq(stockTransactions.transactionType, "SALES_OUT"),
+          like(stockTransactions.reference, "Xero import %"),
+        ));
+
+      // Parse last sales period from reference like "Xero import 2026-01-01 to 2026-03-31"
+      let lastSalesPeriodEnd: string | null = null;
+      if (lastSalesRow[0]?.maxRef) {
+        const match = lastSalesRow[0].maxRef.match(/to\s+(\d{4}-\d{2}-\d{2})/);
+        lastSalesPeriodEnd = match ? match[1] : null;
+      }
+
+      const dataFreshness = {
+        openingBalanceDate: ledgerRow[0]?.value ?? null,
+        lastSalesImportTo: lastSalesPeriodEnd,
+        lastTransactionAt: lastTxnRow[0]?.maxDate ?? null,
+      };
+
+      res.json({ items, overallStatus, dataFreshness });
     } catch (err: any) {
       res.status(500).json({ message: "Failed to fetch snapshot overview", error: err.message });
     }

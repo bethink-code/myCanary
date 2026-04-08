@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "../lib/queryClient";
 import { Link } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
-import { formatStock, calcStockStatus, getStatusBadge } from "../lib/formatters";
+import { formatStock, calcStockStatus, getStatusBadge, formatDateShort } from "../lib/formatters";
 
 interface StockItem {
   skuCode: string;
@@ -45,6 +45,11 @@ export default function StockManagement() {
   const { data: stockItems = [], isLoading } = useQuery<StockItem[]>({
     queryKey: ["stock-summary"],
     queryFn: () => apiRequest("/api/stock/summary"),
+  });
+
+  const { data: ledgerData } = useQuery<{ ledgerStartDate: string | null; hasOpeningBalance: boolean }>({
+    queryKey: ["ledger-date"],
+    queryFn: () => apiRequest("/api/xero/import/ledger-date"),
   });
 
   const filtered = stockItems.filter((item) => {

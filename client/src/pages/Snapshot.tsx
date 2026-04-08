@@ -31,9 +31,16 @@ interface SnapshotProduct {
   hasPendingDelivery: boolean;
 }
 
+interface DataFreshness {
+  openingBalanceDate: string | null;
+  lastSalesImportTo: string | null;
+  lastTransactionAt: string | null;
+}
+
 interface SnapshotOverview {
   items: SnapshotProduct[];
   overallStatus: "ALL_GOOD" | "HEADS_UP" | "ACTION_NEEDED";
+  dataFreshness: DataFreshness;
 }
 
 interface RhythmData {
@@ -435,18 +442,20 @@ function RhythmPrompts({ rhythm }: { rhythm: RhythmData | undefined }) {
     );
   }
 
-  // Xero check: no import for current month
+  // Xero check: show gap between last import and previous month end
+  const now = new Date();
+  const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0); // last day of previous month
+
   if (rhythm.lastXeroImport) {
     const lastImport = new Date(rhythm.lastXeroImport);
-    const now = new Date();
-    if (
-      lastImport.getFullYear() < now.getFullYear() ||
-      lastImport.getMonth() < now.getMonth()
-    ) {
+    // Only prompt if the last import doesn't cover up to the previous month
+    if (lastImport < prevMonthEnd) {
+      const gapStart = formatDateShort(rhythm.lastXeroImport);
+      const gapEnd = formatDateShort(prevMonthEnd);
       prompts.push(
         <div key="xero" className="rounded-xl border border-amber-200 bg-warning-bg p-4 flex items-center justify-between gap-4">
           <p className="text-sm text-warning font-medium">
-            Last month's sales haven't been imported yet.
+            Sales imported to {gapStart}. Data up to {gapEnd} not yet imported.
           </p>
           <Link
             to="/xero/import"
@@ -461,7 +470,7 @@ function RhythmPrompts({ rhythm }: { rhythm: RhythmData | undefined }) {
     prompts.push(
       <div key="xero" className="rounded-xl border border-amber-200 bg-warning-bg p-4 flex items-center justify-between gap-4">
         <p className="text-sm text-warning font-medium">
-          Last month's sales haven't been imported yet.
+          No sales data imported yet. Import from Xero to see accurate stock levels.
         </p>
         <Link
           to="/xero/import"
@@ -642,11 +651,30 @@ export default function Snapshot() {
 
   const items = overview?.items ?? [];
   const overallStatus = overview?.overallStatus ?? "ALL_GOOD";
+  const freshness = overview?.dataFreshness;
 
   return (
     <div className="space-y-6">
       {/* Status Line */}
       <StatusLine overallStatus={overallStatus} items={items} />
+
+      {/* Data Freshness */}
+      {freshness && (
+        <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-slate-400">
+          {freshness.openingBalanceDate && (
+            <span>Opening balance: <strong className="text-slate-600">{formatDateShort(freshness.openingBalanceDate)}</strong></span>
+          )}
+          {freshness.lastSalesImportTo && (
+            <span>Sales imported to: <strong className="text-slate-600">{formatDateShort(freshness.lastSalesImportTo)}</strong></span>
+          )}
+          {freshness.lastTransactionAt && (
+            <span>Last update: <strong className="text-slate-600">{formatDateShort(freshness.lastTransactionAt)}</strong></span>
+          )}
+        </div>
+      )}
+
+      {/* Working Rhythm Prompts — actionable nudges, shown prominently */}
+      <RhythmPrompts rhythm={rhythm} />
 
       {/* Time Window + Lens */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -672,8 +700,6 @@ export default function Snapshot() {
         )}
       </div>
 
-      {/* Working Rhythm Prompts */}
-      <RhythmPrompts rhythm={rhythm} />
     </div>
   );
 }
