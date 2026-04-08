@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "../lib/queryClient";
 import { Link } from "react-router-dom";
 import LoadingOverlay from "../components/LoadingOverlay";
+import { getStatusBadge, daysFromNow, formatDateShort } from "../lib/formatters";
 import {
   LineChart,
   Line,
@@ -63,30 +64,6 @@ const STATUS_ORDER: Record<string, number> = {
   OK: 2,
   NO_DATA: 3,
 };
-
-const STATUS_BADGE: Record<string, { label: string; className: string }> = {
-  REORDER: { label: "Reorder", className: "bg-red-100 text-red-700" },
-  APPROACHING: { label: "Approaching", className: "bg-amber-100 text-amber-700" },
-  OK: { label: "OK", className: "bg-green-100 text-green-700" },
-  NO_DATA: { label: "No data", className: "bg-slate-100 text-slate-500" },
-};
-
-/* ---------- helpers ---------- */
-
-function daysFromNow(dateStr: string | null): number | null {
-  if (!dateStr) return null;
-  const diff = new Date(dateStr).getTime() - Date.now();
-  return Math.ceil(diff / (1000 * 60 * 60 * 24));
-}
-
-function formatDate(dateStr: string | null): string {
-  if (!dateStr) return "\u2014";
-  return new Date(dateStr).toLocaleDateString("en-ZA", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-}
 
 /* ---------- sub-components ---------- */
 
@@ -266,7 +243,7 @@ function DataTable({
             </tr>
           )}
           {products.map((p) => {
-            const badge = STATUS_BADGE[p.status] ?? STATUS_BADGE.NO_DATA;
+            const badge = getStatusBadge(p.status);
             return (
               <tr key={p.skuCode} className="border-b border-border/50 hover:bg-slate-50/50">
                 <td className="py-3 px-3">
@@ -286,7 +263,7 @@ function DataTable({
                     <span className="text-slate-400">{"\u2014"}</span>
                   )}
                 </td>
-                <td className="py-3 px-3">{formatDate(p.projectedReorderDate)}</td>
+                <td className="py-3 px-3">{formatDateShort(p.projectedReorderDate)}</td>
                 <td className="py-3 px-3">
                   <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${badge.className}`}>
                     {badge.label}
@@ -508,7 +485,7 @@ function RhythmPrompts({ rhythm }: { rhythm: RhythmData | undefined }) {
     prompts.push(
       <div key={`delivery-${d.poId}`} className="rounded-xl border border-blue-200 bg-info-bg p-4 flex items-center justify-between gap-4">
         <p className="text-sm text-info font-medium">
-          {d.manufacturerName} delivery expected by {formatDate(d.expectedDate)} — not yet recorded.
+          {d.manufacturerName} delivery expected by {formatDateShort(d.expectedDate)} — not yet recorded.
         </p>
         <Link
           to="/stock/delivery"

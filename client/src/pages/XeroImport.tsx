@@ -5,6 +5,8 @@ import { invalidateStockData } from "../lib/invalidation";
 import { Link } from "react-router-dom";
 import LoadingOverlay from "../components/LoadingOverlay";
 import StickyActionBar from "../components/StickyActionBar";
+import ErrorBox from "../components/ErrorBox";
+import { formatDateLong, formatTimestamp } from "../lib/formatters";
 
 interface ParsedRow {
   itemCode: string;
@@ -334,7 +336,7 @@ export default function XeroImport() {
           {/* Ledger start date info */}
           {ledgerStartDate && (
             <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-sm text-blue-800">
-              Ledger start date: <strong>{new Date(ledgerStartDate).toLocaleDateString("en-ZA", { day: "numeric", month: "long", year: "numeric" })}</strong>.
+              Ledger start date: <strong>{formatDateLong(ledgerStartDate)}</strong>.
               Sales imports must cover periods after this date — earlier sales are already accounted for in the opening balance.
             </div>
           )}
@@ -376,7 +378,7 @@ export default function XeroImport() {
                           {entry.totalUnits.toLocaleString()}
                         </td>
                         <td className="px-5 py-2.5 text-slate-500">
-                          {new Date(entry.importedAt).toLocaleDateString()} {new Date(entry.importedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                          {formatTimestamp(entry.importedAt)}
                         </td>
                       </tr>
                     );
@@ -478,17 +480,17 @@ export default function XeroImport() {
                   </div>
 
                   {apiPullMutation.isError && (
-                    <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">
+                    <ErrorBox>
                       {(apiPullMutation.error as any)?.message ?? "Failed to pull data from Xero"}
-                    </div>
+                    </ErrorBox>
                   )}
 
                   {/* Date before ledger start warning */}
                   {fromDateBeforeLedger && (
-                    <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">
+                    <ErrorBox>
                       <strong>From Date is before the ledger start date ({ledgerStartDate}).</strong> Opening balances already account for all sales up to that date.
                       Set the From Date to {ledgerStartDate} or later.
-                    </div>
+                    </ErrorBox>
                   )}
 
                   {/* Already imported block */}
@@ -614,9 +616,7 @@ export default function XeroImport() {
 
               {/* Error */}
               {previewMutation.isError && (
-                <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">
-                  {previewMutation.error.message}
-                </div>
+                <ErrorBox>{previewMutation.error.message}</ErrorBox>
               )}
 
               {/* Upload button */}
@@ -749,9 +749,7 @@ export default function XeroImport() {
 
           {/* Error */}
           {commitMutation.isError && (
-            <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">
-              {commitMutation.error.message}
-            </div>
+            <ErrorBox>{commitMutation.error.message}</ErrorBox>
           )}
 
           {/* Actions */}

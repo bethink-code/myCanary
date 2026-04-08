@@ -1,6 +1,7 @@
 import { useParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "../lib/queryClient";
+import { formatStock, formatDateShort } from "../lib/formatters";
 
 interface Product {
   id: number;
@@ -41,11 +42,6 @@ interface Transaction {
   reference: string | null;
   channel: string | null;
   notes: string | null;
-}
-
-function formatStock(units: number, unitsPerCase: number | null, category: string): string {
-  if (category === "HORSE_MIX" || !unitsPerCase) return `${units} units`;
-  return `${units} units (${(units / unitsPerCase).toFixed(1)} cases)`;
 }
 
 function isExpiringSoon(expiryDate: string): boolean {
@@ -218,7 +214,7 @@ export default function ProductDetail() {
                     {batch.stockLocation === "THH" ? "THH" : "8/8"}
                   </td>
                   <td className="px-4 py-3">
-                    {new Date(batch.manufactureDate).toLocaleDateString()}
+                    {formatDateShort(batch.manufactureDate)}
                   </td>
                   <td className="px-4 py-3">
                     <span
@@ -226,7 +222,7 @@ export default function ProductDetail() {
                         isExpiringSoon(batch.expiryDate) ? "text-amber-700 font-medium" : ""
                       }
                     >
-                      {new Date(batch.expiryDate).toLocaleDateString()}
+                      {formatDateShort(batch.expiryDate)}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-right font-mono">
@@ -270,7 +266,7 @@ export default function ProductDetail() {
               {transactions.slice(0, 50).map((tx) => (
                 <tr key={tx.id}>
                   <td className="px-4 py-3">
-                    {new Date(tx.transactionDate).toLocaleDateString()}
+                    {formatDateShort(tx.transactionDate)}
                   </td>
                   <td className="px-4 py-3">
                     {TYPE_LABELS[tx.transactionType] ?? tx.transactionType}

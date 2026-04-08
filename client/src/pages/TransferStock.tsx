@@ -4,6 +4,8 @@ import { apiRequest } from "../lib/queryClient";
 import { invalidateStockData } from "../lib/invalidation";
 import { Link } from "react-router-dom";
 import StickyActionBar from "../components/StickyActionBar";
+import { formatStock } from "../lib/formatters";
+import ErrorBox from "../components/ErrorBox";
 
 interface StockItem {
   skuCode: string;
@@ -102,19 +104,13 @@ export default function TransferStock() {
               <div>
                 <p className="text-sm text-slate-500">Current THH Stock</p>
                 <p className="text-lg font-bold text-slate-900">
-                  {selected.thhStock} units (
-                  {(selected.thhStock / (selected.unitsPerCase ?? 1)).toFixed(1)}{" "}
-                  cases)
+                  {formatStock(selected.thhStock, selected.unitsPerCase, selected.category)}
                 </p>
               </div>
               <div>
                 <p className="text-sm text-slate-500">Current 8/8 Stock</p>
                 <p className="text-lg font-bold text-slate-900">
-                  {selected.eightEightStock} units (
-                  {(
-                    selected.eightEightStock / (selected.unitsPerCase ?? 1)
-                  ).toFixed(1)}{" "}
-                  cases)
+                  {formatStock(selected.eightEightStock, selected.unitsPerCase, selected.category)}
                 </p>
               </div>
             </div>
@@ -167,9 +163,7 @@ export default function TransferStock() {
           </div>
         )}
         {error && (
-          <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-            {error}
-          </div>
+          <ErrorBox>{error}</ErrorBox>
         )}
       </div>
     </div>

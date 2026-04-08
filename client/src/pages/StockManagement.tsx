@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "../lib/queryClient";
 import { Link } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
+import { formatStock, calcStockStatus, getStatusBadge } from "../lib/formatters";
 
 interface StockItem {
   skuCode: string;
@@ -15,30 +16,6 @@ interface StockItem {
   thhStock: number;
   eightEightStock: number;
   reorderPoint: number | null;
-}
-
-function formatStock(units: number, unitsPerCase: number | null, category: string): string {
-  if (category === "HORSE_MIX" || !unitsPerCase) {
-    return `${units} units`;
-  }
-  const cases = (units / unitsPerCase).toFixed(1);
-  return `${units} units (${cases} cases)`;
-}
-
-function getStockStatus(
-  current: number,
-  reorderPoint: number | null
-): { label: string; color: string } {
-  if (reorderPoint === null || reorderPoint === 0) {
-    return { label: "N/A", color: "bg-slate-100 text-slate-600" };
-  }
-  if (current <= reorderPoint) {
-    return { label: "REORDER", color: "bg-red-100 text-red-700" };
-  }
-  if (current <= reorderPoint * 1.25) {
-    return { label: "APPROACHING", color: "bg-amber-100 text-amber-700" };
-  }
-  return { label: "OK", color: "bg-green-100 text-green-700" };
 }
 
 const CATEGORIES = [
@@ -84,12 +61,12 @@ export default function StockManagement() {
     if (statusFilter) {
       const stock =
         item.primaryStockLocation === "88" ? item.eightEightStock : item.thhStock;
-      const status = getStockStatus(stock, item.reorderPoint);
-      if (statusFilter === "REORDER" && status.label !== "REORDER") return false;
+      const status = calcStockStatus(stock, item.reorderPoint);
+      if (statusFilter === "REORDER" && status !== "REORDER") return false;
       if (
         statusFilter === "APPROACHING_AND_REORDER" &&
-        status.label !== "REORDER" &&
-        status.label !== "APPROACHING"
+        status !== "REORDER" &&
+        status !== "APPROACHING"
       )
         return false;
     }
@@ -247,7 +224,7 @@ export default function StockManagement() {
                     item.primaryStockLocation === "88"
                       ? item.eightEightStock
                       : item.thhStock;
-                  const status = getStockStatus(primaryStock, item.reorderPoint);
+                  const status = getStatusBadge(calcStockStatus(primaryStock, item.reorderPoint));
 
                   return (
                     <tr key={item.skuCode} className="hover:bg-slate-50">
@@ -290,7 +267,7 @@ export default function StockManagement() {
                       </td>
                       <td className="px-4 py-3 text-center">
                         <span
-                          className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${status.color}`}
+                          className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${status.className}`}
                         >
                           {status.label}
                         </span>

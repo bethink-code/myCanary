@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "../lib/queryClient";
 import { Link } from "react-router-dom";
+import { formatDateShort } from "../lib/formatters";
 
 interface OrderSummary {
   id: number;
@@ -114,7 +115,7 @@ export default function OrderList() {
                 {filtered.map((order) => (
                   <tr key={order.id} className="hover:bg-slate-50">
                     <td className="px-4 py-3">
-                      {new Date(order.orderDate).toLocaleDateString()}
+                      {formatDateShort(order.orderDate)}
                     </td>
                     <td className="px-4 py-3 font-medium">
                       <Link

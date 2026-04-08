@@ -2,6 +2,8 @@ import { useState, useMemo, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "../lib/queryClient";
 import { Link } from "react-router-dom";
+import { formatDateLong, formatDateShort } from "../lib/formatters";
+import ErrorBox from "../components/ErrorBox";
 
 interface ReorderItem {
   skuCode: string;
@@ -18,22 +20,6 @@ interface ReorderItem {
 interface LineState {
   qty: number;
   included: boolean;
-}
-
-function formatDate(date: Date): string {
-  return date.toLocaleDateString("en-ZA", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
-}
-
-function formatDateShort(date: Date): string {
-  return date.toLocaleDateString("en-ZA", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
 }
 
 function buildEmailDraft(
@@ -58,7 +44,7 @@ Please find our order below:
 
 ${lines}
 
-Requested delivery date: ${formatDate(deliveryDate)}
+Requested delivery date: ${formatDateLong(deliveryDate)}
 
 Kind regards`;
 }
@@ -152,7 +138,7 @@ export default function ReorderWorkflow() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Reorder Workflow</h1>
           <p className="text-sm text-slate-500 mt-1">
-            Stock check — {formatDate(checkDate)}
+            Stock check — {formatDateLong(checkDate)}
           </p>
         </div>
         {!isLoading && actionItems.length > 0 && (
@@ -178,9 +164,7 @@ export default function ReorderWorkflow() {
 
       {/* Error */}
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-700">
-          Failed to load reorder data: {(error as Error).message}
-        </div>
+        <ErrorBox>Failed to load reorder data: {(error as Error).message}</ErrorBox>
       )}
 
       {/* All OK */}

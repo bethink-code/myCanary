@@ -4,6 +4,7 @@ import { apiRequest } from "../lib/queryClient";
 import { invalidateStockData } from "../lib/invalidation";
 import { Link } from "react-router-dom";
 import StickyActionBar from "../components/StickyActionBar";
+import ErrorBox from "../components/ErrorBox";
 
 // ─── PnP DC reference data ─────────────────────────────────────
 const PNP_DCS: Record<string, string> = {
@@ -405,9 +406,7 @@ export default function PnpWeekly() {
           </div>
 
           {uploadMutation.isError && (
-            <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">
-              {uploadMutation.error.message}
-            </div>
+            <ErrorBox>{uploadMutation.error.message}</ErrorBox>
           )}
 
           <StickyActionBar>
@@ -527,9 +526,7 @@ export default function PnpWeekly() {
           </div>
 
           {createMutation.isError && (
-            <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">
-              {createMutation.error.message}
-            </div>
+            <ErrorBox>{createMutation.error.message}</ErrorBox>
           )}
 
           <StickyActionBar>
@@ -738,9 +735,7 @@ export default function PnpWeekly() {
           </div>
 
           {dispatchMutation.isError && (
-            <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">
-              {dispatchMutation.error.message}
-            </div>
+            <ErrorBox>{dispatchMutation.error.message}</ErrorBox>
           )}
 
           <StickyActionBar>

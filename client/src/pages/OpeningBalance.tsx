@@ -5,6 +5,7 @@ import { invalidateStockData } from "../lib/invalidation";
 import { Link, useNavigate } from "react-router-dom";
 import LoadingOverlay from "../components/LoadingOverlay";
 import StickyActionBar from "../components/StickyActionBar";
+import ErrorBox from "../components/ErrorBox";
 
 interface ParsedRow {
   sheetCode: string;
@@ -185,14 +186,14 @@ export default function OpeningBalance() {
               </div>
 
               {sheetPullMutation.isError && (
-                <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">
+                <ErrorBox>
                   {(sheetPullMutation.error as any)?.message ?? "Failed to pull from Google Sheets"}
                   {(sheetPullMutation.error as any)?.message?.includes("sign out") && (
                     <p className="mt-2">
                       <a href="/auth/logout" className="text-primary underline">Sign out</a> and sign in again to grant Google Sheets permission.
                     </p>
                   )}
-                </div>
+                </ErrorBox>
               )}
 
               <StickyActionBar>
@@ -270,9 +271,7 @@ export default function OpeningBalance() {
               </div>
 
               {previewMutation.isError && (
-                <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">
-                  {previewMutation.error.message}
-                </div>
+                <ErrorBox>{previewMutation.error.message}</ErrorBox>
               )}
 
               <StickyActionBar>
@@ -400,9 +399,9 @@ export default function OpeningBalance() {
           </div>
 
           {commitMutation.isError && (
-            <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">
+            <ErrorBox>
               {(commitMutation.error as any)?.message ?? "Import failed"}
-            </div>
+            </ErrorBox>
           )}
 
           <StickyActionBar>
