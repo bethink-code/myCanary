@@ -465,7 +465,7 @@ function logAudit(req, action, opts = {}) {
 }
 
 // server/routes.ts
-import { eq as eq2, sql as sql2, and, desc, asc, sum, or, isNull, gte, lte, inArray, like } from "drizzle-orm";
+import { eq as eq2, sql as sql2, and, desc, asc, sum, count, or, isNull, gte, lte, inArray, like } from "drizzle-orm";
 
 // server/clientContext.ts
 function clientContext(req, _res, next) {
@@ -1295,6 +1295,142 @@ function registerRoutes(router2) {
       });
     } catch (err) {
       res.status(500).json({ message: "Failed to fetch courier data", error: err.message });
+    }
+  });
+  router2.post("/api/purchase-orders", isAuthenticated, async (req, res) => {
+    try {
+      const clientId = getClientId(req);
+      const userId = req.user.id;
+      const body = z.object({
+        manufacturerId: z.number(),
+        lines: z.array(z.object({
+          skuCode: z.string(),
+          sizeVariant: z.string(),
+          quantityOrdered: z.number().int().positive(),
+          triggerReason: z.string().optional()
+        })).min(1),
+        draftEmailBody: z.string().optional(),
+        notes: z.string().optional()
+      }).safeParse(req.body);
+      if (!body.success) return res.status(400).json({ message: "Invalid input", errors: body.error.flatten() });
+      const { manufacturerId, lines, draftEmailBody, notes } = body.data;
+      const [mfr] = await db.select({ standardLeadTimeDays: manufacturers.standardLeadTimeDays }).from(manufacturers).where(and(eq2(manufacturers.id, manufacturerId), eq2(manufacturers.clientId, clientId)));
+      if (!mfr) return res.status(404).json({ message: "Manufacturer not found" });
+      const today = /* @__PURE__ */ new Date();
+      const todayStr = today.toISOString().slice(0, 10);
+      const expectedDelivery = new Date(today);
+      expectedDelivery.setDate(expectedDelivery.getDate() + mfr.standardLeadTimeDays);
+      const expectedDeliveryStr = expectedDelivery.toISOString().slice(0, 10);
+      const [po] = await db.insert(purchaseOrders).values({
+        clientId,
+        manufacturerId,
+        status: "APPROVED",
+        createdDate: todayStr,
+        approvedBy: userId,
+        approvedAt: /* @__PURE__ */ new Date(),
+        expectedDeliveryDate: expectedDeliveryStr,
+        draftEmailBody: draftEmailBody ?? null,
+        notes: notes ?? null
+      }).returning();
+      const lineValues = lines.map((l) => ({
+        clientId,
+        poId: po.id,
+        skuCode: l.skuCode,
+        sizeVariant: l.sizeVariant,
+        quantityOrdered: l.quantityOrdered,
+        triggerReason: l.triggerReason ?? null
+      }));
+      const insertedLines = await db.insert(purchaseOrderLines).values(lineValues).returning();
+      res.json({
+        ...po,
+        reference: `PO-${po.id}`,
+        lines: insertedLines
+      });
+    } catch (err) {
+      res.status(500).json({ message: "Failed to create purchase order", error: err.message });
+    }
+  });
+  router2.get("/api/purchase-orders", isAuthenticated, async (req, res) => {
+    try {
+      const clientId = getClientId(req);
+      const rows = await db.select({
+        id: purchaseOrders.id,
+        manufacturerName: manufacturers.name,
+        status: purchaseOrders.status,
+        createdDate: purchaseOrders.createdDate,
+        expectedDeliveryDate: purchaseOrders.expectedDeliveryDate,
+        lineCount: count(purchaseOrderLines.id),
+        totalUnits: sum(purchaseOrderLines.quantityOrdered)
+      }).from(purchaseOrders).leftJoin(manufacturers, eq2(purchaseOrders.manufacturerId, manufacturers.id)).leftJoin(purchaseOrderLines, eq2(purchaseOrders.id, purchaseOrderLines.poId)).where(eq2(purchaseOrders.clientId, clientId)).groupBy(purchaseOrders.id, manufacturers.name).orderBy(desc(purchaseOrders.createdDate));
+      res.json(rows.map((r) => ({
+        ...r,
+        reference: `PO-${r.id}`,
+        totalUnits: Number(r.totalUnits ?? 0),
+        lineCount: Number(r.lineCount)
+      })));
+    } catch (err) {
+      res.status(500).json({ message: "Failed to list purchase orders", error: err.message });
+    }
+  });
+  router2.get("/api/purchase-orders/:id", isAuthenticated, async (req, res) => {
+    try {
+      const clientId = getClientId(req);
+      const poId = parseInt(req.params.id, 10);
+      const [po] = await db.select({
+        id: purchaseOrders.id,
+        manufacturerName: manufacturers.name,
+        manufacturerId: purchaseOrders.manufacturerId,
+        status: purchaseOrders.status,
+        createdDate: purchaseOrders.createdDate,
+        approvedBy: purchaseOrders.approvedBy,
+        approvedAt: purchaseOrders.approvedAt,
+        sentAt: purchaseOrders.sentAt,
+        expectedDeliveryDate: purchaseOrders.expectedDeliveryDate,
+        notes: purchaseOrders.notes,
+        draftEmailBody: purchaseOrders.draftEmailBody,
+        createdAt: purchaseOrders.createdAt
+      }).from(purchaseOrders).leftJoin(manufacturers, eq2(purchaseOrders.manufacturerId, manufacturers.id)).where(and(eq2(purchaseOrders.id, poId), eq2(purchaseOrders.clientId, clientId)));
+      if (!po) return res.status(404).json({ message: "Purchase order not found" });
+      const lines = await db.select().from(purchaseOrderLines).where(and(eq2(purchaseOrderLines.poId, poId), eq2(purchaseOrderLines.clientId, clientId)));
+      res.json({ ...po, reference: `PO-${po.id}`, lines });
+    } catch (err) {
+      res.status(500).json({ message: "Failed to fetch purchase order", error: err.message });
+    }
+  });
+  router2.patch("/api/purchase-orders/:id/status", isAuthenticated, async (req, res) => {
+    try {
+      const clientId = getClientId(req);
+      const poId = parseInt(req.params.id, 10);
+      const body = z.object({
+        status: z.enum(["SENT", "CONFIRMED", "DELIVERED"])
+      }).safeParse(req.body);
+      if (!body.success) return res.status(400).json({ message: "Invalid status" });
+      const newStatus = body.data.status;
+      const [current] = await db.select().from(purchaseOrders).where(and(eq2(purchaseOrders.id, poId), eq2(purchaseOrders.clientId, clientId)));
+      if (!current) return res.status(404).json({ message: "Purchase order not found" });
+      const validTransitions = {
+        APPROVED: "SENT",
+        SENT: "CONFIRMED",
+        CONFIRMED: "DELIVERED"
+      };
+      if (validTransitions[current.status] !== newStatus) {
+        return res.status(400).json({ message: `Cannot transition from ${current.status} to ${newStatus}` });
+      }
+      const updates = { status: newStatus };
+      if (newStatus === "SENT") {
+        const now = /* @__PURE__ */ new Date();
+        updates.sentAt = now;
+        const [mfr] = await db.select({ standardLeadTimeDays: manufacturers.standardLeadTimeDays }).from(manufacturers).where(and(eq2(manufacturers.id, current.manufacturerId), eq2(manufacturers.clientId, clientId)));
+        if (mfr) {
+          const expected = new Date(now);
+          expected.setDate(expected.getDate() + mfr.standardLeadTimeDays);
+          updates.expectedDeliveryDate = expected.toISOString().slice(0, 10);
+        }
+      }
+      const [updated] = await db.update(purchaseOrders).set(updates).where(and(eq2(purchaseOrders.id, poId), eq2(purchaseOrders.clientId, clientId))).returning();
+      res.json({ ...updated, reference: `PO-${updated.id}` });
+    } catch (err) {
+      res.status(500).json({ message: "Failed to update purchase order status", error: err.message });
     }
   });
   router2.get("/api/snapshot/overview", isAuthenticated, async (req, res) => {

@@ -11,6 +11,7 @@ export function invalidateStockData(qc: QueryClient) {
   qc.invalidateQueries({ queryKey: ["snapshot-rhythm"] });
   qc.invalidateQueries({ queryKey: ["products"] });
   qc.invalidateQueries({ queryKey: ["ledger-date"] });
+  qc.invalidateQueries({ queryKey: ["purchase-orders"] });
 }
 
 /**

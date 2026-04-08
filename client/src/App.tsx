@@ -16,6 +16,7 @@ import OrderDetail from "./pages/OrderDetail";
 import PnpWeekly from "./pages/PnpWeekly";
 import OpeningBalance from "./pages/OpeningBalance";
 import Settings from "./pages/Settings";
+import PurchaseOrders from "./pages/PurchaseOrders";
 import NotificationBell from "./components/NotificationBell";
 import NotFound from "./pages/not-found";
 import { useState, useRef, useEffect } from "react";
@@ -26,6 +27,7 @@ const STOCK_LINKS = [
   { to: "/pnp", label: "PnP Weekly" },
   { to: "/xero/import", label: "Xero Import" },
   { to: "/stock/reorder", label: "Reorder" },
+  { to: "/stock/purchase-orders", label: "Purchase Orders" },
   { to: "/stock/delivery", label: "Record Delivery" },
   { to: "/stock/transfer", label: "Transfer" },
   { to: "/stock/opening-balance", label: "Opening Balance" },
@@ -253,6 +255,7 @@ function AppLayout() {
           <Route path="/stock" element={<StockManagement />} />
           <Route path="/stock/product/:skuCode" element={<ProductDetail />} />
           <Route path="/stock/reorder" element={<ReorderWorkflow />} />
+          <Route path="/stock/purchase-orders" element={<PurchaseOrders />} />
           <Route path="/stock/transfer" element={<TransferStock />} />
           <Route path="/orders" element={<OrderList />} />
           <Route path="/orders/new" element={<OrderDetail />} />

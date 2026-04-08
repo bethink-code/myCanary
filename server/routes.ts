@@ -23,6 +23,7 @@ import {
   orders,
   orderLines,
   purchaseOrders,
+  purchaseOrderLines,
   pnpOrders,
   systemSettings,
 } from "../shared/schema";
@@ -1185,6 +1186,212 @@ export function registerRoutes(router: Router) {
       });
     } catch (err: any) {
       res.status(500).json({ message: "Failed to fetch courier data", error: err.message });
+    }
+  });
+
+  // ═══════════════════════════════════════════════════
+  // ─── Purchase Order Lifecycle ─────────────────────
+  // ═══════════════════════════════════════════════════
+
+  // POST /api/purchase-orders — Create a new PO (status = APPROVED)
+  router.post("/api/purchase-orders", isAuthenticated, async (req, res) => {
+    try {
+      const clientId = getClientId(req);
+      const userId = (req.user as any).id;
+
+      const body = z.object({
+        manufacturerId: z.number(),
+        lines: z.array(z.object({
+          skuCode: z.string(),
+          sizeVariant: z.string(),
+          quantityOrdered: z.number().int().positive(),
+          triggerReason: z.string().optional(),
+        })).min(1),
+        draftEmailBody: z.string().optional(),
+        notes: z.string().optional(),
+      }).safeParse(req.body);
+
+      if (!body.success) return res.status(400).json({ message: "Invalid input", errors: body.error.flatten() });
+
+      const { manufacturerId, lines, draftEmailBody, notes } = body.data;
+
+      // Look up manufacturer lead time
+      const [mfr] = await db
+        .select({ standardLeadTimeDays: manufacturers.standardLeadTimeDays })
+        .from(manufacturers)
+        .where(and(eq(manufacturers.id, manufacturerId), eq(manufacturers.clientId, clientId)));
+
+      if (!mfr) return res.status(404).json({ message: "Manufacturer not found" });
+
+      const today = new Date();
+      const todayStr = today.toISOString().slice(0, 10);
+      const expectedDelivery = new Date(today);
+      expectedDelivery.setDate(expectedDelivery.getDate() + mfr.standardLeadTimeDays);
+      const expectedDeliveryStr = expectedDelivery.toISOString().slice(0, 10);
+
+      // Insert PO
+      const [po] = await db.insert(purchaseOrders).values({
+        clientId,
+        manufacturerId,
+        status: "APPROVED",
+        createdDate: todayStr,
+        approvedBy: userId,
+        approvedAt: new Date(),
+        expectedDeliveryDate: expectedDeliveryStr,
+        draftEmailBody: draftEmailBody ?? null,
+        notes: notes ?? null,
+      }).returning();
+
+      // Insert lines
+      const lineValues = lines.map((l) => ({
+        clientId,
+        poId: po.id,
+        skuCode: l.skuCode,
+        sizeVariant: l.sizeVariant,
+        quantityOrdered: l.quantityOrdered,
+        triggerReason: l.triggerReason ?? null,
+      }));
+      const insertedLines = await db.insert(purchaseOrderLines).values(lineValues).returning();
+
+      res.json({
+        ...po,
+        reference: `PO-${po.id}`,
+        lines: insertedLines,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: "Failed to create purchase order", error: err.message });
+    }
+  });
+
+  // GET /api/purchase-orders — List all POs for client
+  router.get("/api/purchase-orders", isAuthenticated, async (req, res) => {
+    try {
+      const clientId = getClientId(req);
+
+      const rows = await db
+        .select({
+          id: purchaseOrders.id,
+          manufacturerName: manufacturers.name,
+          status: purchaseOrders.status,
+          createdDate: purchaseOrders.createdDate,
+          expectedDeliveryDate: purchaseOrders.expectedDeliveryDate,
+          lineCount: count(purchaseOrderLines.id),
+          totalUnits: sum(purchaseOrderLines.quantityOrdered),
+        })
+        .from(purchaseOrders)
+        .leftJoin(manufacturers, eq(purchaseOrders.manufacturerId, manufacturers.id))
+        .leftJoin(purchaseOrderLines, eq(purchaseOrders.id, purchaseOrderLines.poId))
+        .where(eq(purchaseOrders.clientId, clientId))
+        .groupBy(purchaseOrders.id, manufacturers.name)
+        .orderBy(desc(purchaseOrders.createdDate));
+
+      res.json(rows.map((r) => ({
+        ...r,
+        reference: `PO-${r.id}`,
+        totalUnits: Number(r.totalUnits ?? 0),
+        lineCount: Number(r.lineCount),
+      })));
+    } catch (err: any) {
+      res.status(500).json({ message: "Failed to list purchase orders", error: err.message });
+    }
+  });
+
+  // GET /api/purchase-orders/:id — PO detail with lines
+  router.get("/api/purchase-orders/:id", isAuthenticated, async (req, res) => {
+    try {
+      const clientId = getClientId(req);
+      const poId = parseInt(req.params.id, 10);
+
+      const [po] = await db
+        .select({
+          id: purchaseOrders.id,
+          manufacturerName: manufacturers.name,
+          manufacturerId: purchaseOrders.manufacturerId,
+          status: purchaseOrders.status,
+          createdDate: purchaseOrders.createdDate,
+          approvedBy: purchaseOrders.approvedBy,
+          approvedAt: purchaseOrders.approvedAt,
+          sentAt: purchaseOrders.sentAt,
+          expectedDeliveryDate: purchaseOrders.expectedDeliveryDate,
+          notes: purchaseOrders.notes,
+          draftEmailBody: purchaseOrders.draftEmailBody,
+          createdAt: purchaseOrders.createdAt,
+        })
+        .from(purchaseOrders)
+        .leftJoin(manufacturers, eq(purchaseOrders.manufacturerId, manufacturers.id))
+        .where(and(eq(purchaseOrders.id, poId), eq(purchaseOrders.clientId, clientId)));
+
+      if (!po) return res.status(404).json({ message: "Purchase order not found" });
+
+      const lines = await db
+        .select()
+        .from(purchaseOrderLines)
+        .where(and(eq(purchaseOrderLines.poId, poId), eq(purchaseOrderLines.clientId, clientId)));
+
+      res.json({ ...po, reference: `PO-${po.id}`, lines });
+    } catch (err: any) {
+      res.status(500).json({ message: "Failed to fetch purchase order", error: err.message });
+    }
+  });
+
+  // PATCH /api/purchase-orders/:id/status — Advance PO status
+  router.patch("/api/purchase-orders/:id/status", isAuthenticated, async (req, res) => {
+    try {
+      const clientId = getClientId(req);
+      const poId = parseInt(req.params.id, 10);
+
+      const body = z.object({
+        status: z.enum(["SENT", "CONFIRMED", "DELIVERED"]),
+      }).safeParse(req.body);
+
+      if (!body.success) return res.status(400).json({ message: "Invalid status" });
+
+      const newStatus = body.data.status;
+
+      // Fetch current PO
+      const [current] = await db
+        .select()
+        .from(purchaseOrders)
+        .where(and(eq(purchaseOrders.id, poId), eq(purchaseOrders.clientId, clientId)));
+
+      if (!current) return res.status(404).json({ message: "Purchase order not found" });
+
+      // Validate transition
+      const validTransitions: Record<string, string> = {
+        APPROVED: "SENT",
+        SENT: "CONFIRMED",
+        CONFIRMED: "DELIVERED",
+      };
+      if (validTransitions[current.status] !== newStatus) {
+        return res.status(400).json({ message: `Cannot transition from ${current.status} to ${newStatus}` });
+      }
+
+      const updates: Record<string, any> = { status: newStatus };
+
+      if (newStatus === "SENT") {
+        const now = new Date();
+        updates.sentAt = now;
+        // Recalculate expected delivery from sentAt + lead time
+        const [mfr] = await db
+          .select({ standardLeadTimeDays: manufacturers.standardLeadTimeDays })
+          .from(manufacturers)
+          .where(and(eq(manufacturers.id, current.manufacturerId), eq(manufacturers.clientId, clientId)));
+        if (mfr) {
+          const expected = new Date(now);
+          expected.setDate(expected.getDate() + mfr.standardLeadTimeDays);
+          updates.expectedDeliveryDate = expected.toISOString().slice(0, 10);
+        }
+      }
+
+      const [updated] = await db
+        .update(purchaseOrders)
+        .set(updates)
+        .where(and(eq(purchaseOrders.id, poId), eq(purchaseOrders.clientId, clientId)))
+        .returning();
+
+      res.json({ ...updated, reference: `PO-${updated.id}` });
+    } catch (err: any) {
+      res.status(500).json({ message: "Failed to update purchase order status", error: err.message });
     }
   });
 

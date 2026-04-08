@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "../lib/queryClient";
+import { invalidateStockData } from "../lib/invalidation";
 import { Link } from "react-router-dom";
 import { formatDateLong, formatDateShort } from "../lib/formatters";
 import ErrorBox from "../components/ErrorBox";
@@ -51,6 +52,7 @@ Kind regards`;
 
 export default function ReorderWorkflow() {
   const checkDate = useMemo(() => new Date(), []);
+  const qc = useQueryClient();
 
   const { data: allItems = [], isLoading, error } = useQuery<ReorderItem[]>({
     queryKey: ["reorder-check"],
@@ -101,7 +103,7 @@ export default function ReorderWorkflow() {
     }));
   };
 
-  // Clipboard copy for a manufacturer group
+  // Persist PO and copy to clipboard for a manufacturer group
   const handleCopyPO = async (manufacturerName: string, items: ReorderItem[]) => {
     const included = items
       .filter((item) => getLineState(item).included)
@@ -109,16 +111,49 @@ export default function ReorderWorkflow() {
 
     if (included.length === 0) return;
 
+    const manufacturerId = items[0].manufacturerId;
+    if (!manufacturerId) return;
+
     const draft = buildEmailDraft(manufacturerName, included, checkDate);
+
+    // Persist the PO
+    const result = await createPOMutation.mutateAsync({
+      manufacturerId,
+      lines: included.map((item) => ({
+        skuCode: item.skuCode,
+        sizeVariant: "",
+        quantityOrdered: item.qty,
+        triggerReason: item.status === "REORDER" ? "Below reorder point" : "Approaching reorder point",
+      })),
+      draftEmailBody: draft,
+    });
+
+    // Copy to clipboard
     await navigator.clipboard.writeText(draft);
+
+    return result.reference as string;
   };
 
   // Counts for header
   const reorderCount = allItems.filter((i) => i.status === "REORDER").length;
   const approachingCount = allItems.filter((i) => i.status === "APPROACHING").length;
 
-  // Copied state per manufacturer
+  // Copied state per manufacturer: stores the PO reference on success
   const [copiedMfr, setCopiedMfr] = useState<string | null>(null);
+  const [savedRef, setSavedRef] = useState<string | null>(null);
+
+  // Mutation: create PO on server
+  const createPOMutation = useMutation({
+    mutationFn: (payload: {
+      manufacturerId: number;
+      lines: { skuCode: string; sizeVariant: string; quantityOrdered: number; triggerReason: string }[];
+      draftEmailBody: string;
+      notes?: string;
+    }) => apiRequest("/api/purchase-orders", { method: "POST", body: JSON.stringify(payload) }),
+    onSuccess: () => {
+      invalidateStockData(qc);
+    },
+  });
 
   return (
     <div className="space-y-6">
@@ -301,14 +336,26 @@ export default function ReorderWorkflow() {
                     className="w-full px-3 py-2 border border-border rounded-lg text-xs font-mono bg-white text-slate-700 resize-y focus:outline-none"
                   />
                   <button
+                    disabled={createPOMutation.isPending}
                     onClick={async () => {
-                      await handleCopyPO(manufacturerName, items);
-                      setCopiedMfr(manufacturerName);
-                      setTimeout(() => setCopiedMfr(null), 2000);
+                      try {
+                        const ref = await handleCopyPO(manufacturerName, items);
+                        if (ref) {
+                          setCopiedMfr(manufacturerName);
+                          setSavedRef(ref);
+                          setTimeout(() => { setCopiedMfr(null); setSavedRef(null); }, 3000);
+                        }
+                      } catch {
+                        // mutation error handled by react-query
+                      }
                     }}
-                    className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 transition-opacity"
+                    className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
                   >
-                    {copiedMfr === manufacturerName ? "Copied!" : "Approve & Copy PO"}
+                    {createPOMutation.isPending
+                      ? "Saving..."
+                      : copiedMfr === manufacturerName
+                        ? `Saved & Copied! (${savedRef})`
+                        : "Approve & Copy PO"}
                   </button>
                 </div>
               )}
