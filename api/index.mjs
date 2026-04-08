@@ -465,7 +465,7 @@ function logAudit(req, action, opts = {}) {
 }
 
 // server/routes.ts
-import { eq as eq2, sql as sql2, and, desc, asc, sum, or, isNull, gte, lte } from "drizzle-orm";
+import { eq as eq2, sql as sql2, and, desc, asc, sum, or, isNull, gte, lte, inArray, like } from "drizzle-orm";
 
 // server/clientContext.ts
 function clientContext(req, _res, next) {
@@ -1297,6 +1297,142 @@ function registerRoutes(router2) {
       res.status(500).json({ message: "Failed to fetch courier data", error: err.message });
     }
   });
+  router2.get("/api/snapshot/overview", isAuthenticated, async (req, res) => {
+    try {
+      const clientId = getClientId(req);
+      const windowParam = parseInt(String(req.query.window || "30"), 10);
+      const window = [30, 60, 90].includes(windowParam) ? windowParam : 30;
+      const allProducts = await db.select({
+        skuCode: products.skuCode,
+        productName: products.productName,
+        brand: products.brand,
+        category: products.category,
+        reorderPoint: products.reorderPointOverride,
+        manufacturerName: manufacturers.name
+      }).from(products).leftJoin(manufacturers, eq2(products.manufacturerId, manufacturers.id)).where(and(eq2(products.clientId, clientId), eq2(products.isActive, true)));
+      const stockRows = await db.select({
+        skuCode: stockTransactions.skuCode,
+        totalStock: sum(stockTransactions.quantity).mapWith(Number)
+      }).from(stockTransactions).where(eq2(stockTransactions.clientId, clientId)).groupBy(stockTransactions.skuCode);
+      const stockMap = new Map(stockRows.map((r) => [r.skuCode, r.totalStock ?? 0]));
+      const windowStart = /* @__PURE__ */ new Date();
+      windowStart.setDate(windowStart.getDate() - window);
+      const windowStartStr = windowStart.toISOString().split("T")[0];
+      const depletionRows = await db.select({
+        skuCode: stockTransactions.skuCode,
+        totalOut: sql2`COALESCE(SUM(ABS(${stockTransactions.quantity})), 0)`.mapWith(Number)
+      }).from(stockTransactions).where(
+        and(
+          eq2(stockTransactions.clientId, clientId),
+          inArray(stockTransactions.transactionType, ["SALES_OUT", "PNP_OUT"]),
+          gte(stockTransactions.transactionDate, windowStartStr)
+        )
+      ).groupBy(stockTransactions.skuCode);
+      const depletionMap = new Map(depletionRows.map((r) => [r.skuCode, r.totalOut]));
+      const today = /* @__PURE__ */ new Date();
+      const items = allProducts.map((p) => {
+        const currentStock = stockMap.get(p.skuCode) ?? 0;
+        const totalOut = depletionMap.get(p.skuCode) ?? 0;
+        const depletionRate = totalOut / window;
+        const reorderPoint = p.reorderPoint;
+        let daysRemaining = null;
+        if (depletionRate > 0) {
+          daysRemaining = Math.round(currentStock / depletionRate * 10) / 10;
+        }
+        let projectedReorderDate = null;
+        if (depletionRate > 0 && reorderPoint !== null && reorderPoint !== void 0) {
+          const daysUntilReorder = (currentStock - reorderPoint) / depletionRate;
+          if (daysUntilReorder > 0) {
+            const reorderDate = new Date(today);
+            reorderDate.setDate(reorderDate.getDate() + Math.ceil(daysUntilReorder));
+            projectedReorderDate = reorderDate.toISOString().split("T")[0];
+          } else {
+            projectedReorderDate = today.toISOString().split("T")[0];
+          }
+        }
+        let status;
+        if (reorderPoint === null || reorderPoint === void 0) {
+          status = "NO_DATA";
+        } else if (currentStock <= reorderPoint) {
+          status = "REORDER";
+        } else if (currentStock <= reorderPoint * 1.25) {
+          status = "APPROACHING";
+        } else {
+          status = "OK";
+        }
+        return {
+          skuCode: p.skuCode,
+          productName: p.productName,
+          brand: p.brand,
+          category: p.category,
+          manufacturerName: p.manufacturerName,
+          currentStock,
+          reorderPoint,
+          depletionRate: Math.round(depletionRate * 100) / 100,
+          daysRemaining,
+          projectedReorderDate,
+          status
+        };
+      });
+      let overallStatus = "ALL_GOOD";
+      if (items.some((i) => i.status === "REORDER")) {
+        overallStatus = "ACTION_NEEDED";
+      } else if (items.some((i) => i.status === "APPROACHING")) {
+        overallStatus = "HEADS_UP";
+      }
+      res.json({ items, overallStatus });
+    } catch (err) {
+      res.status(500).json({ message: "Failed to fetch snapshot overview", error: err.message });
+    }
+  });
+  router2.get("/api/snapshot/rhythm", isAuthenticated, async (req, res) => {
+    try {
+      const clientId = getClientId(req);
+      const [lastPnpRow] = await db.select({ createdAt: pnpOrders.createdAt }).from(pnpOrders).where(eq2(pnpOrders.clientId, clientId)).orderBy(desc(pnpOrders.createdAt)).limit(1);
+      const lastPnpUpload = lastPnpRow?.createdAt?.toISOString() ?? null;
+      const [lastXeroRow] = await db.select({ reference: stockTransactions.reference }).from(stockTransactions).where(
+        and(
+          eq2(stockTransactions.clientId, clientId),
+          eq2(stockTransactions.transactionType, "SALES_OUT"),
+          like(stockTransactions.reference, "Xero import %")
+        )
+      ).orderBy(desc(stockTransactions.createdAt)).limit(1);
+      let lastXeroImport = null;
+      if (lastXeroRow?.reference) {
+        const match = lastXeroRow.reference.match(/to\s+(\d{4}-\d{2}-\d{2})/);
+        lastXeroImport = match ? match[1] : null;
+      }
+      const pendingRows = await db.select({
+        manufacturerName: manufacturers.name,
+        expectedDeliveryDate: purchaseOrders.expectedDeliveryDate,
+        status: purchaseOrders.status
+      }).from(purchaseOrders).innerJoin(manufacturers, eq2(purchaseOrders.manufacturerId, manufacturers.id)).where(
+        and(
+          eq2(purchaseOrders.clientId, clientId),
+          inArray(purchaseOrders.status, ["SENT", "CONFIRMED"])
+        )
+      ).orderBy(asc(purchaseOrders.expectedDeliveryDate));
+      const today = /* @__PURE__ */ new Date();
+      const pendingDeliveries = pendingRows.map((row) => {
+        let daysUntilDelivery = null;
+        if (row.expectedDeliveryDate) {
+          const expected = new Date(row.expectedDeliveryDate);
+          daysUntilDelivery = Math.ceil(
+            (expected.getTime() - today.getTime()) / (1e3 * 60 * 60 * 24)
+          );
+        }
+        return {
+          manufacturer: row.manufacturerName,
+          expectedDeliveryDate: row.expectedDeliveryDate,
+          status: row.status,
+          daysUntilDelivery
+        };
+      });
+      res.json({ lastPnpUpload, lastXeroImport, pendingDeliveries });
+    } catch (err) {
+      res.status(500).json({ message: "Failed to fetch snapshot rhythm", error: err.message });
+    }
+  });
   return router2;
 }
 
@@ -1304,7 +1440,7 @@ function registerRoutes(router2) {
 import multer from "multer";
 import * as XLSX from "xlsx";
 import { z as z2 } from "zod";
-import { eq as eq3, and as and2, asc as asc2, desc as desc2, sql as sql3, like } from "drizzle-orm";
+import { eq as eq3, and as and2, asc as asc2, desc as desc2, sql as sql3, like as like2 } from "drizzle-orm";
 var upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 var CHANNELS = {
   D: { name: "Direct", debitLocation: "THH" },
@@ -1542,7 +1678,7 @@ function registerXeroRoutes(router2) {
         and2(
           eq3(stockTransactions.clientId, clientId),
           eq3(stockTransactions.transactionType, "SALES_OUT"),
-          like(stockTransactions.reference, "Xero import %")
+          like2(stockTransactions.reference, "Xero import %")
         )
       ).groupBy(stockTransactions.reference).orderBy(desc2(sql3`min(${stockTransactions.createdAt})`));
       const history = imports.map((imp) => {

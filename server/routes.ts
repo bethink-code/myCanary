@@ -22,8 +22,10 @@ import {
   notifications,
   orders,
   orderLines,
+  purchaseOrders,
+  pnpOrders,
 } from "../shared/schema";
-import { eq, sql, and, desc, asc, sum, count, or, isNull, gte, lte } from "drizzle-orm";
+import { eq, sql, and, desc, asc, sum, count, or, isNull, gte, lte, inArray, like } from "drizzle-orm";
 import { getClientId } from "./clientContext";
 
 export function isAuthenticated(req: Request, res: Response, next: NextFunction) {
@@ -1182,6 +1184,205 @@ export function registerRoutes(router: Router) {
       });
     } catch (err: any) {
       res.status(500).json({ message: "Failed to fetch courier data", error: err.message });
+    }
+  });
+
+  // ═══════════════════════════════════════════════════
+  // ─── Canary Snapshot Routes ───────────────────────
+  // ═══════════════════════════════════════════════════
+
+  // ─── Snapshot: Overview ─────────────────────────
+  router.get("/api/snapshot/overview", isAuthenticated, async (req, res) => {
+    try {
+      const clientId = getClientId(req);
+      const windowParam = parseInt(String(req.query.window || "30"), 10);
+      const window = [30, 60, 90].includes(windowParam) ? windowParam : 30;
+
+      // 1. Get all active products with manufacturer name
+      const allProducts = await db
+        .select({
+          skuCode: products.skuCode,
+          productName: products.productName,
+          brand: products.brand,
+          category: products.category,
+          reorderPoint: products.reorderPointOverride,
+          manufacturerName: manufacturers.name,
+        })
+        .from(products)
+        .leftJoin(manufacturers, eq(products.manufacturerId, manufacturers.id))
+        .where(and(eq(products.clientId, clientId), eq(products.isActive, true)));
+
+      // 2. Get current stock per SKU (sum ALL transactions across ALL locations)
+      const stockRows = await db
+        .select({
+          skuCode: stockTransactions.skuCode,
+          totalStock: sum(stockTransactions.quantity).mapWith(Number),
+        })
+        .from(stockTransactions)
+        .where(eq(stockTransactions.clientId, clientId))
+        .groupBy(stockTransactions.skuCode);
+
+      const stockMap = new Map(stockRows.map((r) => [r.skuCode, r.totalStock ?? 0]));
+
+      // 3. Calculate depletion rate: sum of abs(negative transactions) in trailing window
+      const windowStart = new Date();
+      windowStart.setDate(windowStart.getDate() - window);
+      const windowStartStr = windowStart.toISOString().split("T")[0];
+
+      const depletionRows = await db
+        .select({
+          skuCode: stockTransactions.skuCode,
+          totalOut: sql<number>`COALESCE(SUM(ABS(${stockTransactions.quantity})), 0)`.mapWith(Number),
+        })
+        .from(stockTransactions)
+        .where(
+          and(
+            eq(stockTransactions.clientId, clientId),
+            inArray(stockTransactions.transactionType, ["SALES_OUT", "PNP_OUT"]),
+            gte(stockTransactions.transactionDate, windowStartStr),
+          ),
+        )
+        .groupBy(stockTransactions.skuCode);
+
+      const depletionMap = new Map(depletionRows.map((r) => [r.skuCode, r.totalOut]));
+
+      const today = new Date();
+
+      const items = allProducts.map((p) => {
+        const currentStock = stockMap.get(p.skuCode) ?? 0;
+        const totalOut = depletionMap.get(p.skuCode) ?? 0;
+        const depletionRate = totalOut / window;
+        const reorderPoint = p.reorderPoint;
+
+        let daysRemaining: number | null = null;
+        if (depletionRate > 0) {
+          daysRemaining = Math.round((currentStock / depletionRate) * 10) / 10;
+        }
+
+        let projectedReorderDate: string | null = null;
+        if (depletionRate > 0 && reorderPoint !== null && reorderPoint !== undefined) {
+          const daysUntilReorder = (currentStock - reorderPoint) / depletionRate;
+          if (daysUntilReorder > 0) {
+            const reorderDate = new Date(today);
+            reorderDate.setDate(reorderDate.getDate() + Math.ceil(daysUntilReorder));
+            projectedReorderDate = reorderDate.toISOString().split("T")[0];
+          } else {
+            projectedReorderDate = today.toISOString().split("T")[0];
+          }
+        }
+
+        let status: "OK" | "APPROACHING" | "REORDER" | "NO_DATA";
+        if (reorderPoint === null || reorderPoint === undefined) {
+          status = "NO_DATA";
+        } else if (currentStock <= reorderPoint) {
+          status = "REORDER";
+        } else if (currentStock <= reorderPoint * 1.25) {
+          status = "APPROACHING";
+        } else {
+          status = "OK";
+        }
+
+        return {
+          skuCode: p.skuCode,
+          productName: p.productName,
+          brand: p.brand,
+          category: p.category,
+          manufacturerName: p.manufacturerName,
+          currentStock,
+          reorderPoint,
+          depletionRate: Math.round(depletionRate * 100) / 100,
+          daysRemaining,
+          projectedReorderDate,
+          status,
+        };
+      });
+
+      let overallStatus: "ACTION_NEEDED" | "HEADS_UP" | "ALL_GOOD" = "ALL_GOOD";
+      if (items.some((i) => i.status === "REORDER")) {
+        overallStatus = "ACTION_NEEDED";
+      } else if (items.some((i) => i.status === "APPROACHING")) {
+        overallStatus = "HEADS_UP";
+      }
+
+      res.json({ items, overallStatus });
+    } catch (err: any) {
+      res.status(500).json({ message: "Failed to fetch snapshot overview", error: err.message });
+    }
+  });
+
+  // ─── Snapshot: Rhythm ───────────────────────────
+  router.get("/api/snapshot/rhythm", isAuthenticated, async (req, res) => {
+    try {
+      const clientId = getClientId(req);
+
+      // 1. Last PnP upload: most recent pnpOrders.createdAt
+      const [lastPnpRow] = await db
+        .select({ createdAt: pnpOrders.createdAt })
+        .from(pnpOrders)
+        .where(eq(pnpOrders.clientId, clientId))
+        .orderBy(desc(pnpOrders.createdAt))
+        .limit(1);
+
+      const lastPnpUpload = lastPnpRow?.createdAt?.toISOString() ?? null;
+
+      // 2. Last Xero import: most recent SALES_OUT with reference LIKE 'Xero import %'
+      const [lastXeroRow] = await db
+        .select({ reference: stockTransactions.reference })
+        .from(stockTransactions)
+        .where(
+          and(
+            eq(stockTransactions.clientId, clientId),
+            eq(stockTransactions.transactionType, "SALES_OUT"),
+            like(stockTransactions.reference, "Xero import %"),
+          ),
+        )
+        .orderBy(desc(stockTransactions.createdAt))
+        .limit(1);
+
+      let lastXeroImport: string | null = null;
+      if (lastXeroRow?.reference) {
+        // Parse toDate from reference like "Xero import 2026-03-01 to 2026-03-31"
+        const match = lastXeroRow.reference.match(/to\s+(\d{4}-\d{2}-\d{2})/);
+        lastXeroImport = match ? match[1] : null;
+      }
+
+      // 3. Pending deliveries: purchase orders with status SENT or CONFIRMED
+      const pendingRows = await db
+        .select({
+          manufacturerName: manufacturers.name,
+          expectedDeliveryDate: purchaseOrders.expectedDeliveryDate,
+          status: purchaseOrders.status,
+        })
+        .from(purchaseOrders)
+        .innerJoin(manufacturers, eq(purchaseOrders.manufacturerId, manufacturers.id))
+        .where(
+          and(
+            eq(purchaseOrders.clientId, clientId),
+            inArray(purchaseOrders.status, ["SENT", "CONFIRMED"]),
+          ),
+        )
+        .orderBy(asc(purchaseOrders.expectedDeliveryDate));
+
+      const today = new Date();
+      const pendingDeliveries = pendingRows.map((row) => {
+        let daysUntilDelivery: number | null = null;
+        if (row.expectedDeliveryDate) {
+          const expected = new Date(row.expectedDeliveryDate);
+          daysUntilDelivery = Math.ceil(
+            (expected.getTime() - today.getTime()) / (1000 * 60 * 60 * 24),
+          );
+        }
+        return {
+          manufacturer: row.manufacturerName,
+          expectedDeliveryDate: row.expectedDeliveryDate,
+          status: row.status,
+          daysUntilDelivery,
+        };
+      });
+
+      res.json({ lastPnpUpload, lastXeroImport, pendingDeliveries });
+    } catch (err: any) {
+      res.status(500).json({ message: "Failed to fetch snapshot rhythm", error: err.message });
     }
   });
 

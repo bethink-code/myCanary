@@ -21,6 +21,18 @@
   --color-card-foreground: #0f172a;
   --color-popover: #ffffff;
   --color-popover-foreground: #0f172a;
+  /* MyCanary semantic tokens */
+  --color-stock-in: #16a34a;
+  --color-stock-in-bg: #f0fdf4;
+  --color-stock-out: #dc2626;
+  --color-stock-out-bg: #fef2f2;
+  --color-warning: #d97706;
+  --color-warning-bg: #fffbeb;
+  --color-info: #2563eb;
+  --color-info-bg: #eff6ff;
+  --color-invoiced: #9333ea;
+  --color-invoiced-bg: #faf5ff;
+  --color-brand-primary: #1e293b;
   --radius-sm: 0.25rem;
   --radius-md: 0.375rem;
   --radius-lg: 0.5rem;
