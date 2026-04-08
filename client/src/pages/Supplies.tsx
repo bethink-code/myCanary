@@ -235,7 +235,7 @@ export default function Supplies() {
     mutationFn: async () => {
       return apiRequest("/api/supplies/import/commit", {
         method: "POST",
-        body: JSON.stringify({ rows: previewRows }),
+        body: JSON.stringify({ items: previewRows }),
       }) as Promise<ImportCommitResponse>;
     },
     onSuccess: (data) => {
