@@ -1316,7 +1316,7 @@ export function registerRoutes(router: Router) {
         .where(and(
           eq(stockTransactions.clientId, clientId),
           eq(stockTransactions.transactionType, "SALES_OUT"),
-          like(stockTransactions.reference, "Xero import %"),
+          like(stockTransactions.reference, "%Xero import %"),
         ));
 
       // Parse last sales period from reference like "Xero import 2026-01-01 to 2026-03-31"
@@ -1361,7 +1361,7 @@ export function registerRoutes(router: Router) {
           and(
             eq(stockTransactions.clientId, clientId),
             eq(stockTransactions.transactionType, "SALES_OUT"),
-            like(stockTransactions.reference, "Xero import %"),
+            like(stockTransactions.reference, "%Xero import %"),
           ),
         )
         .orderBy(desc(stockTransactions.createdAt))

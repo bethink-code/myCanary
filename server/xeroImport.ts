@@ -331,7 +331,7 @@ export function registerXeroRoutes(router: Router) {
           and(
             eq(stockTransactions.clientId, clientId),
             eq(stockTransactions.transactionType, "SALES_OUT"),
-            like(stockTransactions.reference, "Xero import %")
+            like(stockTransactions.reference, "%Xero import %")
           )
         )
         .groupBy(stockTransactions.reference)

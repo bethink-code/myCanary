@@ -1385,7 +1385,7 @@ function registerRoutes(router2) {
       const lastSalesRow = await db.select({ maxRef: sql2`max(${stockTransactions.reference})` }).from(stockTransactions).where(and(
         eq2(stockTransactions.clientId, clientId),
         eq2(stockTransactions.transactionType, "SALES_OUT"),
-        like(stockTransactions.reference, "Xero import %")
+        like(stockTransactions.reference, "%Xero import %")
       ));
       let lastSalesPeriodEnd = null;
       if (lastSalesRow[0]?.maxRef) {
@@ -1411,7 +1411,7 @@ function registerRoutes(router2) {
         and(
           eq2(stockTransactions.clientId, clientId),
           eq2(stockTransactions.transactionType, "SALES_OUT"),
-          like(stockTransactions.reference, "Xero import %")
+          like(stockTransactions.reference, "%Xero import %")
         )
       ).orderBy(desc(stockTransactions.createdAt)).limit(1);
       let lastXeroImport = null;
@@ -1684,7 +1684,7 @@ function registerXeroRoutes(router2) {
         and2(
           eq3(stockTransactions.clientId, clientId),
           eq3(stockTransactions.transactionType, "SALES_OUT"),
-          like2(stockTransactions.reference, "Xero import %")
+          like2(stockTransactions.reference, "%Xero import %")
         )
       ).groupBy(stockTransactions.reference).orderBy(desc2(sql3`min(${stockTransactions.createdAt})`));
       const history = imports.map((imp) => {
