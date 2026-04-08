@@ -5,6 +5,8 @@ import { invalidateStockData } from "../lib/invalidation";
 import { Link } from "react-router-dom";
 import StickyActionBar from "../components/StickyActionBar";
 import ErrorBox from "../components/ErrorBox";
+import PageTabs from "../components/PageTabs";
+import { formatDateShort, formatTimestamp } from "../lib/formatters";
 
 // ─── PnP DC reference data ─────────────────────────────────────
 const PNP_DCS: Record<string, string> = {
@@ -67,8 +69,16 @@ interface ProductOption {
   productName: string;
 }
 
+interface PnpOrder {
+  id: number;
+  weekEndingDate: string;
+  status: string;
+  createdAt: string;
+}
+
 export default function PnpWeekly() {
   const qc = useQueryClient();
+  const [tab, setTab] = useState<string>("history");
   const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1);
 
   // Step 1 state
@@ -99,6 +109,13 @@ export default function PnpWeekly() {
     queryKey: ["products-list"],
     queryFn: () => apiRequest("/api/products"),
     staleTime: 10 * 60 * 1000,
+  });
+
+  // Past PnP orders for history tab
+  const { data: pnpOrders = [] } = useQuery<PnpOrder[]>({
+    queryKey: ["pnp-orders"],
+    queryFn: () => apiRequest("/api/pnp/orders"),
+    enabled: tab === "history",
   });
 
   // ─── Step 1: Upload & parse ─────────────────────────────────
@@ -296,6 +313,63 @@ export default function PnpWeekly() {
         </Link>
       </div>
 
+      <PageTabs
+        tabs={[{ id: "history", label: "History" }, { id: "new", label: "New Dispatch" }]}
+        activeTab={tab}
+        onChange={setTab}
+      />
+
+      {/* History tab */}
+      {tab === "history" && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-xl border border-border overflow-hidden">
+            <div className="px-5 py-3 border-b border-border bg-slate-50">
+              <h3 className="font-semibold text-sm text-slate-900">Past PnP Dispatches</h3>
+            </div>
+            {pnpOrders.length > 0 ? (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left px-5 py-2.5 font-medium text-slate-500 text-xs">Week Ending</th>
+                    <th className="text-left px-5 py-2.5 font-medium text-slate-500 text-xs">Status</th>
+                    <th className="text-left px-5 py-2.5 font-medium text-slate-500 text-xs">Dispatched On</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {pnpOrders.map((order) => (
+                    <tr key={order.id} className="hover:bg-slate-50">
+                      <td className="px-5 py-2.5 font-medium text-slate-800">
+                        {formatDateShort(order.weekEndingDate)}
+                      </td>
+                      <td className="px-5 py-2.5">
+                        <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${
+                          order.status === "dispatched"
+                            ? "bg-green-100 text-green-700"
+                            : order.status === "created"
+                              ? "bg-blue-100 text-blue-700"
+                              : "bg-slate-100 text-slate-600"
+                        }`}>
+                          {order.status}
+                        </span>
+                      </td>
+                      <td className="px-5 py-2.5 text-slate-500">
+                        {formatTimestamp(order.createdAt)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div className="px-5 py-6 text-center text-sm text-slate-400">
+                No PnP dispatches yet. Switch to the "New Dispatch" tab to process a weekly order.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Action tab: New Dispatch */}
+      {tab === "new" && <>
       {/* Step indicator */}
       <div className="flex items-center gap-2 text-sm">
         {steps.map((s) => (
@@ -845,6 +919,7 @@ export default function PnpWeekly() {
           </div>
         </div>
       )}
+      </>}
     </div>
   );
 }

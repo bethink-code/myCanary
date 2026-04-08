@@ -4,6 +4,8 @@ import { apiRequest } from "../lib/queryClient";
 import { invalidateStockData } from "../lib/invalidation";
 import { Link, useNavigate } from "react-router-dom";
 import StickyActionBar from "../components/StickyActionBar";
+import PageTabs from "../components/PageTabs";
+import { formatDateShort, formatTimestamp } from "../lib/formatters";
 
 interface Product {
   id: number;
@@ -21,9 +23,17 @@ interface DeliveryLine {
   quantity: number;
 }
 
+interface DeliveryHistoryEntry {
+  deliveryNoteRef: string;
+  date: string;
+  productCount: number;
+  totalUnits: number;
+}
+
 export default function DeliveryReceipt() {
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const [tab, setTab] = useState<string>("history");
   const [deliveryNoteRef, setDeliveryNoteRef] = useState("");
   const [receivedDate, setReceivedDate] = useState(
     new Date().toISOString().split("T")[0]
@@ -45,6 +55,36 @@ export default function DeliveryReceipt() {
   const { data: products = [] } = useQuery<Product[]>({
     queryKey: ["products"],
     queryFn: () => apiRequest("/api/products"),
+  });
+
+  // Delivery history from stock transactions
+  const { data: deliveryHistory = [] } = useQuery<DeliveryHistoryEntry[]>({
+    queryKey: ["delivery-history"],
+    queryFn: async () => {
+      try {
+        const txns = await apiRequest("/api/stock/transactions?type=DELIVERY_IN") as any[];
+        // Group by delivery note ref
+        const grouped = new Map<string, { date: string; skus: Set<string>; totalUnits: number }>();
+        for (const tx of txns) {
+          const ref = tx.reference || tx.deliveryNoteRef || "No reference";
+          if (!grouped.has(ref)) {
+            grouped.set(ref, { date: tx.createdAt || tx.date, skus: new Set(), totalUnits: 0 });
+          }
+          const entry = grouped.get(ref)!;
+          if (tx.skuCode) entry.skus.add(tx.skuCode);
+          entry.totalUnits += Math.abs(tx.quantity ?? 0);
+        }
+        return [...grouped.entries()].map(([ref, data]) => ({
+          deliveryNoteRef: ref,
+          date: data.date,
+          productCount: data.skus.size,
+          totalUnits: data.totalUnits,
+        }));
+      } catch {
+        return [];
+      }
+    },
+    enabled: tab === "history",
   });
 
   const addLine = () => {
@@ -125,7 +165,59 @@ export default function DeliveryReceipt() {
         </p>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <PageTabs
+        tabs={[{ id: "history", label: "History" }, { id: "new", label: "New Delivery" }]}
+        activeTab={tab}
+        onChange={setTab}
+      />
+
+      {/* History tab */}
+      {tab === "history" && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-xl border border-border overflow-hidden">
+            <div className="px-5 py-3 border-b border-border bg-slate-50">
+              <h3 className="font-semibold text-sm text-slate-900">Recent Deliveries</h3>
+            </div>
+            {deliveryHistory.length > 0 ? (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left px-5 py-2.5 font-medium text-slate-500 text-xs">Date</th>
+                    <th className="text-left px-5 py-2.5 font-medium text-slate-500 text-xs">Delivery Note Ref</th>
+                    <th className="text-right px-5 py-2.5 font-medium text-slate-500 text-xs">Products</th>
+                    <th className="text-right px-5 py-2.5 font-medium text-slate-500 text-xs">Total Units</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {deliveryHistory.map((entry) => (
+                    <tr key={entry.deliveryNoteRef} className="hover:bg-slate-50">
+                      <td className="px-5 py-2.5 text-slate-500">
+                        {formatDateShort(entry.date)}
+                      </td>
+                      <td className="px-5 py-2.5 font-medium text-slate-800">
+                        {entry.deliveryNoteRef}
+                      </td>
+                      <td className="px-5 py-2.5 text-right font-mono text-slate-700">
+                        {entry.productCount}
+                      </td>
+                      <td className="px-5 py-2.5 text-right font-mono text-slate-700">
+                        {entry.totalUnits.toLocaleString()}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div className="px-5 py-6 text-center text-sm text-slate-400">
+                Recent deliveries will appear here.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Action tab: New Delivery */}
+      {tab === "new" && <form onSubmit={handleSubmit} className="space-y-6">
         {/* Delivery Header */}
         <div className="bg-white rounded-xl border border-border p-6 space-y-4">
           <h2 className="font-semibold text-slate-900">Delivery Details</h2>
@@ -304,7 +396,7 @@ export default function DeliveryReceipt() {
             Cancel
           </Link>
         </StickyActionBar>
-      </form>
+      </form>}
     </div>
   );
 }

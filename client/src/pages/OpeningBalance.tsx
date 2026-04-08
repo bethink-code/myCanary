@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "../lib/queryClient";
-import { formatDateShort } from "../lib/formatters";
+import { formatDateShort, formatTimestamp } from "../lib/formatters";
 import { invalidateStockData } from "../lib/invalidation";
 import { Link, useNavigate } from "react-router-dom";
 import LoadingOverlay from "../components/LoadingOverlay";
 import StickyActionBar from "../components/StickyActionBar";
 import ErrorBox from "../components/ErrorBox";
+import PageTabs from "../components/PageTabs";
 
 interface ParsedRow {
   sheetCode: string;
@@ -32,8 +33,8 @@ interface PreviewSummary {
 export default function OpeningBalance() {
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const [tab, setTab] = useState<string>("history");
   const [step, setStep] = useState<1 | 2 | 3>(1);
-  const [importMode, setImportMode] = useState<"sheets" | "file">("sheets");
   const [file, setFile] = useState<File | null>(null);
   const [asOfDate, setAsOfDate] = useState(new Date().toISOString().split("T")[0]);
   const [rows, setRows] = useState<ParsedRow[]>([]);
@@ -102,6 +103,20 @@ export default function OpeningBalance() {
     queryFn: () => apiRequest("/api/xero/import/ledger-date"),
   });
 
+  const { data: stockSummary } = useQuery<{ skuCode: string; productName: string; thhStock: number; eightEightStock: number }[]>({
+    queryKey: ["stock-summary"],
+    queryFn: () => apiRequest("/api/stock/summary"),
+    enabled: tab === "history",
+  });
+
+  const historySummary = stockSummary
+    ? {
+        productCount: stockSummary.length,
+        totalThhUnits: stockSummary.reduce((sum, p) => sum + p.thhStock, 0),
+        totalEeUnits: stockSummary.reduce((sum, p) => sum + p.eightEightStock, 0),
+      }
+    : null;
+
   return (
     <div className="space-y-6">
       {sheetPullMutation.isPending && (
@@ -137,173 +152,188 @@ export default function OpeningBalance() {
         </Link>
       </div>
 
-      {/* Current status */}
-      {ledgerData?.hasOpeningBalance && (
-        <div className="bg-green-50 border border-green-200 rounded-xl px-5 py-3 text-sm text-green-800">
-          Opening balance imported as of <strong>{formatDateShort(ledgerData.ledgerStartDate)}</strong>.
-          Re-importing will replace the existing data.
-        </div>
-      )}
+      <PageTabs
+        tabs={[{ id: "history", label: "History" }, { id: "fetch", label: "Fetch" }, { id: "upload", label: "Upload" }]}
+        activeTab={tab}
+        onChange={(id) => { setTab(id); setStep(1); }}
+      />
 
-      {/* Step 1: Source selection */}
-      {step === 1 && (
+      {/* History tab */}
+      {tab === "history" && (
         <div className="space-y-4">
-          {/* Mode selector */}
-          <div className="flex gap-2">
-            <button
-              onClick={() => setImportMode("sheets")}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                importMode === "sheets"
-                  ? "bg-green-600 text-white"
-                  : "bg-white border border-border text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              Pull from Google Sheets (live)
-            </button>
-            <button
-              onClick={() => setImportMode("file")}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                importMode === "file"
-                  ? "bg-green-600 text-white"
-                  : "bg-white border border-border text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              Upload Excel File
-            </button>
-          </div>
-
-          {/* Google Sheets mode */}
-          {importMode === "sheets" && (
-            <div className="bg-white rounded-xl border border-border p-6 space-y-6">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-800 mb-1">
-                  Pull Live from Animal Farm Google Sheet
-                </h2>
-                <p className="text-sm text-slate-500">
-                  Reads the Summary master sheet directly from Google Drive. This is the live source of truth.
-                </p>
+          {ledgerData?.hasOpeningBalance ? (
+            <>
+              <div className="bg-green-50 border border-green-200 rounded-xl px-5 py-3 text-sm text-green-800">
+                Opening balance imported as of <strong>{formatDateShort(ledgerData.ledgerStartDate)}</strong>.
+                Re-importing will replace the existing data.
               </div>
 
-              <div className="max-w-xs">
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Stock As-Of Date
-                </label>
-                <input
-                  type="date"
-                  value={asOfDate}
-                  onChange={(e) => setAsOfDate(e.target.value)}
-                  className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                />
-                <p className="text-xs text-slate-400 mt-1">
-                  The date these stock levels represent.
-                </p>
-              </div>
-
-              {sheetPullMutation.isError && (
-                <ErrorBox>
-                  {(sheetPullMutation.error as any)?.message ?? "Failed to pull from Google Sheets"}
-                  {(sheetPullMutation.error as any)?.message?.includes("sign out") && (
-                    <p className="mt-2">
-                      <a href="/auth/logout" className="text-primary underline">Sign out</a> and sign in again to grant Google Sheets permission.
-                    </p>
-                  )}
-                </ErrorBox>
-              )}
-
-              <StickyActionBar>
-                <button
-                  onClick={() => sheetPullMutation.mutate()}
-                  disabled={sheetPullMutation.isPending}
-                  className="px-6 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
-                >
-                  Pull Stock Levels from Google Sheets
-                </button>
-              </StickyActionBar>
-            </div>
-          )}
-
-          {/* File upload mode */}
-          {importMode === "file" && (
-            <div className="bg-white rounded-xl border border-border p-6 space-y-6">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-800 mb-1">
-                  Upload Animal Farm Spreadsheet
-                </h2>
-                <p className="text-sm text-slate-500">
-                  Upload the Animal Farm Excel file. The system will read the Summary
-                  master sheet and map products to the system SKU codes.
-                </p>
-              </div>
-
-              <div
-                onClick={() => document.getElementById("ob-file-input")?.click()}
-                className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
-                  file
-                    ? "border-green-300 bg-green-50"
-                    : "border-slate-300 hover:border-slate-400"
-                }`}
-              >
-                <input
-                  id="ob-file-input"
-                  type="file"
-                  accept=".xlsx,.xls"
-                  onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                  className="hidden"
-                />
-                {file ? (
-                  <div>
-                    <p className="text-green-700 font-medium">{file.name}</p>
-                    <p className="text-sm text-slate-500 mt-1">
-                      {(file.size / 1024).toFixed(1)} KB — Click to replace
-                    </p>
+              {historySummary && (
+                <div className="bg-white rounded-xl border border-border p-6 space-y-3">
+                  <h3 className="font-semibold text-slate-900 text-sm">Opening Balance Summary</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div>
+                      <p className="text-xs text-slate-500">Date Imported</p>
+                      <p className="text-sm font-medium text-slate-800">{formatDateShort(ledgerData.ledgerStartDate)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500">Products</p>
+                      <p className="text-sm font-medium text-slate-800">{historySummary.productCount}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500">Total THH Units</p>
+                      <p className="text-sm font-medium text-slate-800">{historySummary.totalThhUnits.toLocaleString()}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500">Total 8/8 Units</p>
+                      <p className="text-sm font-medium text-slate-800">{historySummary.totalEeUnits.toLocaleString()}</p>
+                    </div>
                   </div>
-                ) : (
-                  <div>
-                    <p className="text-slate-600 font-medium">
-                      Click to select the Animal Farm Excel file
-                    </p>
-                <p className="text-sm text-slate-400 mt-1">
-                  Accepts .xlsx and .xls
-                </p>
-              </div>
-            )}
-          </div>
-
-              <div className="max-w-xs">
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Stock As-Of Date
-                </label>
-                <input
-                  type="date"
-                  value={asOfDate}
-                  onChange={(e) => setAsOfDate(e.target.value)}
-                  className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                />
-                <p className="text-xs text-slate-400 mt-1">
-                  The date these stock levels represent.
-                </p>
-              </div>
-
-              {previewMutation.isError && (
-                <ErrorBox>{previewMutation.error.message}</ErrorBox>
+                </div>
               )}
-
-              <StickyActionBar>
-                <button
-                  onClick={() => previewMutation.mutate()}
-                  disabled={!file || previewMutation.isPending}
-                  className="px-6 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
-                >
-                  Parse & Preview
-                </button>
-              </StickyActionBar>
+            </>
+          ) : (
+            <div className="bg-white rounded-xl border border-border p-8 text-center text-sm text-slate-400">
+              No opening balance has been imported yet. Use the "Fetch" or "Upload" tab to get started.
             </div>
           )}
         </div>
       )}
 
-      {/* Step 2: Preview */}
-      {step === 2 && summary && (
+      {/* Fetch tab — Step 1: Pull from Google Sheets */}
+      {tab === "fetch" && step === 1 && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-xl border border-border p-6 space-y-6">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-800 mb-1">
+                Pull Live from Animal Farm Google Sheet
+              </h2>
+              <p className="text-sm text-slate-500">
+                Reads the Summary master sheet directly from Google Drive. This is the live source of truth.
+              </p>
+            </div>
+
+            <div className="max-w-xs">
+              <label className="block text-sm font-medium text-slate-700 mb-1">
+                Stock As-Of Date
+              </label>
+              <input
+                type="date"
+                value={asOfDate}
+                onChange={(e) => setAsOfDate(e.target.value)}
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+              <p className="text-xs text-slate-400 mt-1">
+                The date these stock levels represent.
+              </p>
+            </div>
+
+            {sheetPullMutation.isError && (
+              <ErrorBox>
+                {(sheetPullMutation.error as any)?.message ?? "Failed to pull from Google Sheets"}
+                {(sheetPullMutation.error as any)?.message?.includes("sign out") && (
+                  <p className="mt-2">
+                    <a href="/auth/logout" className="text-primary underline">Sign out</a> and sign in again to grant Google Sheets permission.
+                  </p>
+                )}
+              </ErrorBox>
+            )}
+
+            <StickyActionBar>
+              <button
+                onClick={() => sheetPullMutation.mutate()}
+                disabled={sheetPullMutation.isPending}
+                className="px-6 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
+              >
+                Pull Stock Levels from Google Sheets
+              </button>
+            </StickyActionBar>
+          </div>
+        </div>
+      )}
+
+      {/* Upload tab — Step 1: File upload */}
+      {tab === "upload" && step === 1 && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-xl border border-border p-6 space-y-6">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-800 mb-1">
+                Upload Animal Farm Spreadsheet
+              </h2>
+              <p className="text-sm text-slate-500">
+                Upload the Animal Farm Excel file. The system will read the Summary
+                master sheet and map products to the system SKU codes.
+              </p>
+            </div>
+
+            <div
+              onClick={() => document.getElementById("ob-file-input")?.click()}
+              className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
+                file
+                  ? "border-green-300 bg-green-50"
+                  : "border-slate-300 hover:border-slate-400"
+              }`}
+            >
+              <input
+                id="ob-file-input"
+                type="file"
+                accept=".xlsx,.xls"
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                className="hidden"
+              />
+              {file ? (
+                <div>
+                  <p className="text-green-700 font-medium">{file.name}</p>
+                  <p className="text-sm text-slate-500 mt-1">
+                    {(file.size / 1024).toFixed(1)} KB — Click to replace
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  <p className="text-slate-600 font-medium">
+                    Click to select the Animal Farm Excel file
+                  </p>
+                  <p className="text-sm text-slate-400 mt-1">
+                    Accepts .xlsx and .xls
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="max-w-xs">
+              <label className="block text-sm font-medium text-slate-700 mb-1">
+                Stock As-Of Date
+              </label>
+              <input
+                type="date"
+                value={asOfDate}
+                onChange={(e) => setAsOfDate(e.target.value)}
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+              <p className="text-xs text-slate-400 mt-1">
+                The date these stock levels represent.
+              </p>
+            </div>
+
+            {previewMutation.isError && (
+              <ErrorBox>{previewMutation.error.message}</ErrorBox>
+            )}
+
+            <StickyActionBar>
+              <button
+                onClick={() => previewMutation.mutate()}
+                disabled={!file || previewMutation.isPending}
+                className="px-6 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
+              >
+                Parse & Preview
+              </button>
+            </StickyActionBar>
+          </div>
+        </div>
+      )}
+
+      {/* Step 2: Preview (shared between Fetch and Upload) */}
+      {(tab === "fetch" || tab === "upload") && step === 2 && summary && (
         <div className="space-y-4">
           {/* Summary */}
           <div className="bg-white rounded-xl border border-border p-4">
@@ -436,8 +466,8 @@ export default function OpeningBalance() {
         </div>
       )}
 
-      {/* Step 3: Done */}
-      {step === 3 && (
+      {/* Step 3: Done (shared between Fetch and Upload) */}
+      {(tab === "fetch" || tab === "upload") && step === 3 && (
         <div className="bg-white rounded-xl border border-border p-8 text-center space-y-4">
           <div className="text-green-600 text-4xl">&#10003;</div>
           <h2 className="text-xl font-bold text-slate-900">

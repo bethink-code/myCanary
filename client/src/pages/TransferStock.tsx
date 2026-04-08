@@ -4,8 +4,9 @@ import { apiRequest } from "../lib/queryClient";
 import { invalidateStockData } from "../lib/invalidation";
 import { Link } from "react-router-dom";
 import StickyActionBar from "../components/StickyActionBar";
-import { formatStock } from "../lib/formatters";
+import { formatStock, formatDateShort, formatTimestamp } from "../lib/formatters";
 import ErrorBox from "../components/ErrorBox";
+import PageTabs from "../components/PageTabs";
 
 interface StockItem {
   skuCode: string;
@@ -17,8 +18,16 @@ interface StockItem {
   eightEightStock: number;
 }
 
+interface TransferHistoryEntry {
+  reference: string;
+  date: string;
+  skuCode: string;
+  quantity: number;
+}
+
 export default function TransferStock() {
   const qc = useQueryClient();
+  const [tab, setTab] = useState<string>("history");
   const [selectedSku, setSelectedSku] = useState("");
   const [cases, setCases] = useState<number>(0);
   const [success, setSuccess] = useState("");
@@ -27,6 +36,25 @@ export default function TransferStock() {
   const { data: stockItems = [] } = useQuery<StockItem[]>({
     queryKey: ["stock-summary"],
     queryFn: () => apiRequest("/api/stock/summary"),
+  });
+
+  // Transfer history
+  const { data: transferHistory = [] } = useQuery<TransferHistoryEntry[]>({
+    queryKey: ["transfer-history"],
+    queryFn: async () => {
+      try {
+        const txns = await apiRequest("/api/stock/transactions?type=TRANSFER") as any[];
+        return txns.map((tx: any) => ({
+          reference: tx.reference || "Transfer",
+          date: tx.createdAt || tx.date,
+          skuCode: tx.skuCode || "",
+          quantity: Math.abs(tx.quantity ?? 0),
+        }));
+      } catch {
+        return [];
+      }
+    },
+    enabled: tab === "history",
   });
 
   // Only show products that have THH stock and units_per_case (transferable in cases)
@@ -74,7 +102,59 @@ export default function TransferStock() {
         </p>
       </div>
 
-      <div className="bg-white rounded-xl border border-border p-6 space-y-4">
+      <PageTabs
+        tabs={[{ id: "history", label: "History" }, { id: "new", label: "New Transfer" }]}
+        activeTab={tab}
+        onChange={setTab}
+      />
+
+      {/* History tab */}
+      {tab === "history" && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-xl border border-border overflow-hidden">
+            <div className="px-5 py-3 border-b border-border bg-slate-50">
+              <h3 className="font-semibold text-sm text-slate-900">Recent Transfers</h3>
+            </div>
+            {transferHistory.length > 0 ? (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left px-5 py-2.5 font-medium text-slate-500 text-xs">Date</th>
+                    <th className="text-left px-5 py-2.5 font-medium text-slate-500 text-xs">SKU</th>
+                    <th className="text-right px-5 py-2.5 font-medium text-slate-500 text-xs">Units</th>
+                    <th className="text-left px-5 py-2.5 font-medium text-slate-500 text-xs">Reference</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {transferHistory.map((entry, idx) => (
+                    <tr key={idx} className="hover:bg-slate-50">
+                      <td className="px-5 py-2.5 text-slate-500">
+                        {formatDateShort(entry.date)}
+                      </td>
+                      <td className="px-5 py-2.5 font-mono text-xs font-medium text-slate-800">
+                        {entry.skuCode}
+                      </td>
+                      <td className="px-5 py-2.5 text-right font-mono text-slate-700">
+                        {entry.quantity.toLocaleString()}
+                      </td>
+                      <td className="px-5 py-2.5 text-slate-500">
+                        {entry.reference}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div className="px-5 py-6 text-center text-sm text-slate-400">
+                Recent transfers will appear here.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Action tab: New Transfer */}
+      {tab === "new" && <div className="bg-white rounded-xl border border-border p-6 space-y-4">
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1">
             Product *
@@ -165,7 +245,7 @@ export default function TransferStock() {
         {error && (
           <ErrorBox>{error}</ErrorBox>
         )}
-      </div>
+      </div>}
     </div>
   );
 }

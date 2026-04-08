@@ -6,7 +6,8 @@ import { Link } from "react-router-dom";
 import LoadingOverlay from "../components/LoadingOverlay";
 import StickyActionBar from "../components/StickyActionBar";
 import ErrorBox from "../components/ErrorBox";
-import { formatDateLong, formatTimestamp } from "../lib/formatters";
+import { formatDateLong, formatDateShort, formatTimestamp } from "../lib/formatters";
+import PageTabs from "../components/PageTabs";
 
 interface ParsedRow {
   itemCode: string;
@@ -59,8 +60,8 @@ interface ImportHistoryEntry {
 
 export default function XeroImport() {
   const qc = useQueryClient();
+  const [tab, setTab] = useState<string>("history");
   const [step, setStep] = useState<1 | 2 | 3>(1);
-  const [importMode, setImportMode] = useState<"api" | "file">("api");
 
   // Step 1 state
   const [file, setFile] = useState<File | null>(null);
@@ -319,20 +320,15 @@ export default function XeroImport() {
         </Link>
       </div>
 
-      {/* Step 1: Import Source */}
-      {step === 1 && (
-        <div className="space-y-4">
-          {/* No opening balance warning */}
-          {!hasOpeningBalance && (
-            <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-800">
-              <strong>Opening balance required.</strong> You need to import opening balances first to establish a ledger start date.
-              Sales imports can only cover periods <em>after</em> the opening balance date.
-              <Link to="/stock/opening-balance" className="ml-2 font-medium text-amber-900 underline">
-                Import Opening Balances
-              </Link>
-            </div>
-          )}
+      <PageTabs
+        tabs={[{ id: "history", label: "History" }, { id: "fetch", label: "Fetch" }, { id: "upload", label: "Upload" }]}
+        activeTab={tab}
+        onChange={(id) => { setTab(id); setStep(1); }}
+      />
 
+      {/* History tab */}
+      {tab === "history" && (
+        <div className="space-y-4">
           {/* Ledger start date info */}
           {ledgerStartDate && (
             <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-sm text-blue-800">
@@ -341,7 +337,7 @@ export default function XeroImport() {
             </div>
           )}
 
-          {/* Import History */}
+          {/* Past Imports table */}
           <div className="bg-white rounded-xl border border-border overflow-hidden">
             <div className="px-5 py-3 border-b border-border bg-slate-50">
               <h3 className="font-semibold text-sm text-slate-900">Past Imports</h3>
@@ -383,273 +379,275 @@ export default function XeroImport() {
               </table>
             ) : (
               <div className="px-5 py-6 text-center text-sm text-slate-400">
-                No imports yet. Select a month below to pull sales data from Xero.
+                No imports yet. Use the "Fetch" or "Upload" tab to pull sales data from Xero.
               </div>
             )}
           </div>
-
-          {/* Mode selector */}
-          <div className="flex gap-2">
-            <button
-              onClick={() => setImportMode("api")}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                importMode === "api"
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-white border border-border text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              Pull from Xero API
-            </button>
-            <button
-              onClick={() => setImportMode("file")}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                importMode === "file"
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-white border border-border text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              Upload Excel File
-            </button>
-          </div>
-
-          {/* API Pull mode */}
-          {importMode === "api" && (
-            <div className="bg-white rounded-xl border border-border p-6 space-y-6">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-800 mb-1">
-                  Pull Sales Data from Xero
-                </h2>
-                <p className="text-sm text-slate-500">
-                  {xeroStatus?.connected
-                    ? `Connected to ${xeroStatus.organisationName}. Select a date range to pull invoice data.`
-                    : "Xero is not connected. Please connect via Settings first, or use file upload."}
-                </p>
-              </div>
-
-              {xeroStatus?.connected ? (
-                <>
-                  {/* Month presets */}
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">
-                      Quick Select Month
-                    </label>
-                    <div className="flex flex-wrap gap-2">
-                      {monthPresets.map((p) => (
-                        <button
-                          key={p.from}
-                          onClick={() => applyPreset(p.from, p.to)}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                            fromDate === p.from && toDate === p.to
-                              ? "bg-primary text-primary-foreground"
-                              : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                          }`}
-                        >
-                          {p.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="flex gap-4">
-                    <div className="flex-1">
-                      <label className="block text-sm font-medium text-slate-700 mb-1">
-                        From Date
-                      </label>
-                      <input
-                        type="date"
-                        value={fromDate}
-                        onChange={(e) => setFromDate(e.target.value)}
-                        className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                      />
-                    </div>
-                    <div className="flex-1">
-                      <label className="block text-sm font-medium text-slate-700 mb-1">
-                        To Date
-                      </label>
-                      <input
-                        type="date"
-                        value={toDate}
-                        onChange={(e) => setToDate(e.target.value)}
-                        className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                      />
-                    </div>
-                  </div>
-
-                  {apiPullMutation.isError && (
-                    <ErrorBox>
-                      {(apiPullMutation.error as any)?.message ?? "Failed to pull data from Xero"}
-                    </ErrorBox>
-                  )}
-
-                  {/* Date before ledger start warning */}
-                  {fromDateBeforeLedger && (
-                    <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-4 py-3 text-sm">
-                      <strong>Note:</strong> From Date is before the ledger start date ({ledgerStartDate}). Opening balances already account for sales up to that date — importing earlier sales may cause double-counting.
-                    </div>
-                  )}
-
-                  {periodAlreadyImported && fromDate && toDate && (
-                    <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-4 py-3 text-sm">
-                      This period ({fromDate} to {toDate}) has been imported before. Re-importing will replace the previous data for this period.
-                    </div>
-                  )}
-
-                  <StickyActionBar>
-                    <button
-                      onClick={() => apiPullMutation.mutate()}
-                      disabled={!fromDate || !toDate || apiPullMutation.isPending}
-                      className="px-6 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {apiPullMutation.isPending ? "Pulling from Xero..." : "Pull Sales Data"}
-                    </button>
-                  </StickyActionBar>
-                </>
-              ) : (
-                <Link
-                  to="/settings"
-                  className="inline-block px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90"
-                >
-                  Go to Settings to Connect Xero
-                </Link>
-              )}
-            </div>
-          )}
-
-          {/* File Upload mode */}
-          {importMode === "file" && (
-            <div className="bg-white rounded-xl border border-border p-6 space-y-6">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-800 mb-1">
-                  Upload Xero Sales by Item Report
-                </h2>
-                <p className="text-sm text-slate-500">
-                  Export the "Sales by Item" report from Xero as an Excel file, then upload it here.
-                </p>
-              </div>
-
-              {/* Dropzone */}
-              <div
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
-                className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer ${
-                  dragOver
-                    ? "border-primary bg-primary/5"
-                    : file
-                      ? "border-green-300 bg-green-50"
-                      : "border-slate-300 hover:border-slate-400"
-                }`}
-                onClick={() => document.getElementById("file-input")?.click()}
-              >
-                <input
-                  id="file-input"
-                  type="file"
-                  accept=".xlsx,.xls"
-                  onChange={handleFileChange}
-                  className="hidden"
-                />
-                {file ? (
-                  <div>
-                    <div className="text-green-700 font-medium">{file.name}</div>
-                    <div className="text-sm text-slate-500 mt-1">
-                      {(file.size / 1024).toFixed(1)} KB - Click or drop to replace
-                    </div>
-                  </div>
-                ) : (
-                  <div>
-                    <div className="text-slate-600 font-medium">
-                      Drop your Excel file here, or click to browse
-                    </div>
-                    <div className="text-sm text-slate-400 mt-1">
-                      Accepts .xlsx and .xls files
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Month presets */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Quick Select Month
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  {monthPresets.map((p) => (
-                    <button
-                      key={p.from}
-                      onClick={() => applyPreset(p.from, p.to)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                        fromDate === p.from && toDate === p.to
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                      }`}
-                    >
-                      {p.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Period selection */}
-              <div className="flex gap-4">
-                <div className="flex-1">
-                  <label className="block text-sm font-medium text-slate-700 mb-1">
-                    From Date
-                  </label>
-                  <input
-                    type="date"
-                    value={fromDate}
-                    onChange={(e) => setFromDate(e.target.value)}
-                    className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  />
-                </div>
-                <div className="flex-1">
-                  <label className="block text-sm font-medium text-slate-700 mb-1">
-                    To Date
-                  </label>
-                  <input
-                    type="date"
-                    value={toDate}
-                    onChange={(e) => setToDate(e.target.value)}
-                    className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  />
-                </div>
-              </div>
-
-              {/* Date before ledger start warning */}
-              {fromDateBeforeLedger && (
-                <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-4 py-3 text-sm">
-                  <strong>Note:</strong> From Date is before the ledger start date ({ledgerStartDate}). Opening balances already account for sales up to that date — importing earlier sales may cause double-counting.
-                </div>
-              )}
-
-              {periodAlreadyImported && fromDate && toDate && (
-                <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-4 py-3 text-sm">
-                  This period ({fromDate} to {toDate}) has been imported before. Re-importing will replace the previous data for this period.
-                </div>
-              )}
-
-              {/* Error */}
-              {previewMutation.isError && (
-                <ErrorBox>{previewMutation.error.message}</ErrorBox>
-              )}
-
-              {/* Upload button */}
-              <StickyActionBar>
-                <button
-                  onClick={() => previewMutation.mutate()}
-                  disabled={!file || !fromDate || !toDate || previewMutation.isPending}
-                  className="px-6 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {previewMutation.isPending ? "Uploading..." : "Upload & Preview"}
-                </button>
-              </StickyActionBar>
-            </div>
-          )}
         </div>
       )}
 
-      {/* Step 2: Preview */}
-      {step === 2 && (
+      {/* Fetch tab — Step 1: Pull from Xero API */}
+      {tab === "fetch" && step === 1 && (
+        <div className="space-y-4">
+          {/* No opening balance warning */}
+          {!hasOpeningBalance && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-800">
+              <strong>Opening balance required.</strong> You need to import opening balances first to establish a ledger start date.
+              Sales imports can only cover periods <em>after</em> the opening balance date.
+              <Link to="/stock/opening-balance" className="ml-2 font-medium text-amber-900 underline">
+                Import Opening Balances
+              </Link>
+            </div>
+          )}
+
+          <div className="bg-white rounded-xl border border-border p-6 space-y-6">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-800 mb-1">
+                Pull Sales Data from Xero
+              </h2>
+              <p className="text-sm text-slate-500">
+                {xeroStatus?.connected
+                  ? `Connected to ${xeroStatus.organisationName}. Select a date range to pull invoice data.`
+                  : "Xero is not connected. Please connect via Settings first, or use file upload."}
+              </p>
+            </div>
+
+            {xeroStatus?.connected ? (
+              <>
+                {/* Month presets */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                    Quick Select Month
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {monthPresets.map((p) => (
+                      <button
+                        key={p.from}
+                        onClick={() => applyPreset(p.from, p.to)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                          fromDate === p.from && toDate === p.to
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                        }`}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex gap-4">
+                  <div className="flex-1">
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      From Date
+                    </label>
+                    <input
+                      type="date"
+                      value={fromDate}
+                      onChange={(e) => setFromDate(e.target.value)}
+                      className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      To Date
+                    </label>
+                    <input
+                      type="date"
+                      value={toDate}
+                      onChange={(e) => setToDate(e.target.value)}
+                      className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                  </div>
+                </div>
+
+                {apiPullMutation.isError && (
+                  <ErrorBox>
+                    {(apiPullMutation.error as any)?.message ?? "Failed to pull data from Xero"}
+                  </ErrorBox>
+                )}
+
+                {/* Date before ledger start warning */}
+                {fromDateBeforeLedger && (
+                  <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-4 py-3 text-sm">
+                    <strong>Note:</strong> From Date is before the ledger start date ({ledgerStartDate}). Opening balances already account for sales up to that date — importing earlier sales may cause double-counting.
+                  </div>
+                )}
+
+                {periodAlreadyImported && fromDate && toDate && (
+                  <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-4 py-3 text-sm">
+                    This period ({fromDate} to {toDate}) has been imported before. Re-importing will replace the previous data for this period.
+                  </div>
+                )}
+
+                <StickyActionBar>
+                  <button
+                    onClick={() => apiPullMutation.mutate()}
+                    disabled={!fromDate || !toDate || apiPullMutation.isPending}
+                    className="px-6 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {apiPullMutation.isPending ? "Pulling from Xero..." : "Pull Sales Data"}
+                  </button>
+                </StickyActionBar>
+              </>
+            ) : (
+              <Link
+                to="/settings"
+                className="inline-block px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90"
+              >
+                Go to Settings to Connect Xero
+              </Link>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Upload tab — Step 1: File upload */}
+      {tab === "upload" && step === 1 && (
+        <div className="space-y-4">
+          {/* No opening balance warning */}
+          {!hasOpeningBalance && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-800">
+              <strong>Opening balance required.</strong> You need to import opening balances first to establish a ledger start date.
+              Sales imports can only cover periods <em>after</em> the opening balance date.
+              <Link to="/stock/opening-balance" className="ml-2 font-medium text-amber-900 underline">
+                Import Opening Balances
+              </Link>
+            </div>
+          )}
+
+          <div className="bg-white rounded-xl border border-border p-6 space-y-6">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-800 mb-1">
+                Upload Xero Sales by Item Report
+              </h2>
+              <p className="text-sm text-slate-500">
+                Export the "Sales by Item" report from Xero as an Excel file, then upload it here.
+              </p>
+            </div>
+
+            {/* Dropzone */}
+            <div
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer ${
+                dragOver
+                  ? "border-primary bg-primary/5"
+                  : file
+                    ? "border-green-300 bg-green-50"
+                    : "border-slate-300 hover:border-slate-400"
+              }`}
+              onClick={() => document.getElementById("file-input")?.click()}
+            >
+              <input
+                id="file-input"
+                type="file"
+                accept=".xlsx,.xls"
+                onChange={handleFileChange}
+                className="hidden"
+              />
+              {file ? (
+                <div>
+                  <div className="text-green-700 font-medium">{file.name}</div>
+                  <div className="text-sm text-slate-500 mt-1">
+                    {(file.size / 1024).toFixed(1)} KB - Click or drop to replace
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <div className="text-slate-600 font-medium">
+                    Drop your Excel file here, or click to browse
+                  </div>
+                  <div className="text-sm text-slate-400 mt-1">
+                    Accepts .xlsx and .xls files
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Month presets */}
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Quick Select Month
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {monthPresets.map((p) => (
+                  <button
+                    key={p.from}
+                    onClick={() => applyPreset(p.from, p.to)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                      fromDate === p.from && toDate === p.to
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Period selection */}
+            <div className="flex gap-4">
+              <div className="flex-1">
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  From Date
+                </label>
+                <input
+                  type="date"
+                  value={fromDate}
+                  onChange={(e) => setFromDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </div>
+              <div className="flex-1">
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  To Date
+                </label>
+                <input
+                  type="date"
+                  value={toDate}
+                  onChange={(e) => setToDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </div>
+            </div>
+
+            {/* Date before ledger start warning */}
+            {fromDateBeforeLedger && (
+              <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-4 py-3 text-sm">
+                <strong>Note:</strong> From Date is before the ledger start date ({ledgerStartDate}). Opening balances already account for sales up to that date — importing earlier sales may cause double-counting.
+              </div>
+            )}
+
+            {periodAlreadyImported && fromDate && toDate && (
+              <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-4 py-3 text-sm">
+                This period ({fromDate} to {toDate}) has been imported before. Re-importing will replace the previous data for this period.
+              </div>
+            )}
+
+            {/* Error */}
+            {previewMutation.isError && (
+              <ErrorBox>{previewMutation.error.message}</ErrorBox>
+            )}
+
+            {/* Upload button */}
+            <StickyActionBar>
+              <button
+                onClick={() => previewMutation.mutate()}
+                disabled={!file || !fromDate || !toDate || previewMutation.isPending}
+                className="px-6 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {previewMutation.isPending ? "Uploading..." : "Upload & Preview"}
+              </button>
+            </StickyActionBar>
+          </div>
+        </div>
+      )}
+
+      {/* Step 2: Preview (shared between Fetch and Upload) */}
+      {(tab === "fetch" || tab === "upload") && step === 2 && (
         <div className="space-y-4">
           {/* Summary */}
           <div className="bg-white rounded-xl border border-border p-4 flex gap-6 text-sm">
@@ -790,8 +788,8 @@ export default function XeroImport() {
         </div>
       )}
 
-      {/* Step 3: Success */}
-      {step === 3 && (
+      {/* Step 3: Success (shared between Fetch and Upload) */}
+      {(tab === "fetch" || tab === "upload") && step === 3 && (
         <div className="bg-white rounded-xl border border-border p-8 text-center space-y-4">
           <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-green-100 text-green-600 mb-2">
             <svg
