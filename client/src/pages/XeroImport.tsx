@@ -487,23 +487,21 @@ export default function XeroImport() {
 
                   {/* Date before ledger start warning */}
                   {fromDateBeforeLedger && (
-                    <ErrorBox>
-                      <strong>From Date is before the ledger start date ({ledgerStartDate}).</strong> Opening balances already account for all sales up to that date.
-                      Set the From Date to {ledgerStartDate} or later.
-                    </ErrorBox>
+                    <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-4 py-3 text-sm">
+                      <strong>Note:</strong> From Date is before the ledger start date ({ledgerStartDate}). Opening balances already account for sales up to that date — importing earlier sales may cause double-counting.
+                    </div>
                   )}
 
-                  {/* Already imported block */}
                   {periodAlreadyImported && fromDate && toDate && (
                     <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-4 py-3 text-sm">
-                      This period ({fromDate} to {toDate}) has already been imported. Each period can only be imported once.
+                      This period ({fromDate} to {toDate}) has been imported before. Re-importing will replace the previous data for this period.
                     </div>
                   )}
 
                   <StickyActionBar>
                     <button
                       onClick={() => apiPullMutation.mutate()}
-                      disabled={!fromDate || !toDate || apiPullMutation.isPending || !hasOpeningBalance || !!fromDateBeforeLedger || periodAlreadyImported}
+                      disabled={!fromDate || !toDate || apiPullMutation.isPending}
                       className="px-6 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {apiPullMutation.isPending ? "Pulling from Xero..." : "Pull Sales Data"}
@@ -623,16 +621,14 @@ export default function XeroImport() {
 
               {/* Date before ledger start warning */}
               {fromDateBeforeLedger && (
-                <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">
-                  <strong>From Date is before the ledger start date ({ledgerStartDate}).</strong> Opening balances already account for all sales up to that date.
-                  Set the From Date to {ledgerStartDate} or later.
+                <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-4 py-3 text-sm">
+                  <strong>Note:</strong> From Date is before the ledger start date ({ledgerStartDate}). Opening balances already account for sales up to that date — importing earlier sales may cause double-counting.
                 </div>
               )}
 
-              {/* Already imported block */}
               {periodAlreadyImported && fromDate && toDate && (
                 <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-4 py-3 text-sm">
-                  This period ({fromDate} to {toDate}) has already been imported. Each period can only be imported once.
+                  This period ({fromDate} to {toDate}) has been imported before. Re-importing will replace the previous data for this period.
                 </div>
               )}
 
@@ -645,7 +641,7 @@ export default function XeroImport() {
               <StickyActionBar>
                 <button
                   onClick={() => previewMutation.mutate()}
-                  disabled={!file || !fromDate || !toDate || previewMutation.isPending || !hasOpeningBalance || !!fromDateBeforeLedger || periodAlreadyImported}
+                  disabled={!file || !fromDate || !toDate || previewMutation.isPending}
                   className="px-6 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {previewMutation.isPending ? "Uploading..." : "Upload & Preview"}

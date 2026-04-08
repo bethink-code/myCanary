@@ -1582,20 +1582,6 @@ function registerXeroRoutes(router2) {
       const userId = req.user?.id;
       const clientId = getClientId(req);
       const reference = `Xero import ${fromDate} to ${toDate}`;
-      const ledgerSetting = await db.select().from(systemSettings).where(and2(eq3(systemSettings.clientId, clientId), eq3(systemSettings.key, "ledger_start_date"))).limit(1);
-      if (ledgerSetting.length === 0) {
-        return res.status(400).json({
-          message: "No opening balance has been imported yet. Import opening balances first to establish the ledger start date.",
-          needsOpeningBalance: true
-        });
-      }
-      const ledgerStartDate = ledgerSetting[0].value;
-      if (fromDate < ledgerStartDate) {
-        return res.status(400).json({
-          message: `Cannot import sales before the ledger start date (${ledgerStartDate}). Opening balances already account for all sales up to that date. Please set the From Date to ${ledgerStartDate} or later.`,
-          ledgerStartDate
-        });
-      }
       const existing = await db.select().from(stockTransactions).where(
         and2(
           eq3(stockTransactions.clientId, clientId),
@@ -1604,10 +1590,13 @@ function registerXeroRoutes(router2) {
         )
       ).limit(1);
       if (existing.length > 0) {
-        return res.status(409).json({
-          message: `This period has already been imported (${fromDate} to ${toDate}). Each period can only be imported once.`,
-          alreadyImported: true
-        });
+        await db.delete(stockTransactions).where(
+          and2(
+            eq3(stockTransactions.clientId, clientId),
+            eq3(stockTransactions.transactionType, "SALES_OUT"),
+            eq3(stockTransactions.reference, reference)
+          )
+        );
       }
       const toDateObj = new Date(toDate);
       const periodMonth = toDateObj.getMonth() + 1;

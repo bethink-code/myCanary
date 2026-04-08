@@ -201,33 +201,8 @@ export function registerXeroRoutes(router: Router) {
       const clientId = getClientId(req);
       const reference = `Xero import ${fromDate} to ${toDate}`;
 
-      // ── Guard 1: Ledger start date ──
-      // The opening balance represents stock on hand AS OF that date,
-      // already net of all prior sales. Importing Xero sales from before
-      // that date would double-count those sales and create false negatives.
-      const ledgerSetting = await db
-        .select()
-        .from(systemSettings)
-        .where(and(eq(systemSettings.clientId, clientId), eq(systemSettings.key, "ledger_start_date")))
-        .limit(1);
-
-      if (ledgerSetting.length === 0) {
-        return res.status(400).json({
-          message: "No opening balance has been imported yet. Import opening balances first to establish the ledger start date.",
-          needsOpeningBalance: true,
-        });
-      }
-
-      const ledgerStartDate = ledgerSetting[0].value!;
-      if (fromDate < ledgerStartDate) {
-        return res.status(400).json({
-          message: `Cannot import sales before the ledger start date (${ledgerStartDate}). Opening balances already account for all sales up to that date. Please set the From Date to ${ledgerStartDate} or later.`,
-          ledgerStartDate,
-        });
-      }
-
-      // ── Guard 2: No duplicate imports ──
-      // Once a period is imported, it cannot be re-imported.
+      // ── Info: Check for overlap with existing imports ──
+      // If this period was already imported, delete the old transactions first (re-import)
       const existing = await db
         .select()
         .from(stockTransactions)
@@ -241,10 +216,16 @@ export function registerXeroRoutes(router: Router) {
         .limit(1);
 
       if (existing.length > 0) {
-        return res.status(409).json({
-          message: `This period has already been imported (${fromDate} to ${toDate}). Each period can only be imported once.`,
-          alreadyImported: true,
-        });
+        // Re-importing: delete old transactions for this exact period
+        await db
+          .delete(stockTransactions)
+          .where(
+            and(
+              eq(stockTransactions.clientId, clientId),
+              eq(stockTransactions.transactionType, "SALES_OUT"),
+              eq(stockTransactions.reference, reference)
+            )
+          );
       }
 
       // Get the period month/year from the toDate
