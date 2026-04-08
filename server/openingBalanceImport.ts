@@ -5,7 +5,8 @@ import { db } from "./db";
 import { products, stockTransactions, batches } from "../shared/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { logAudit } from "./auditLog";
-import { isAuthenticated, isAdmin } from "./routes";
+import { isAuthenticated } from "./routes";
+import { systemSettings } from "../shared/schema";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
@@ -189,7 +190,7 @@ export function registerOpeningBalanceRoutes(router: Router) {
   );
 
   // ─── Commit: create opening balance transactions ─
-  router.post("/api/stock-in/opening-balance/commit", isAdmin, async (req, res) => {
+  router.post("/api/stock-in/opening-balance/commit", isAuthenticated, async (req, res) => {
     try {
       const { rows, asOfDate } = req.body;
       if (!rows || !Array.isArray(rows) || !asOfDate) {
@@ -298,9 +299,28 @@ export function registerOpeningBalanceRoutes(router: Router) {
         }
       }
 
+      // Store the ledger start date — Xero imports must be after this date
+      const existingLedgerDate = await db
+        .select()
+        .from(systemSettings)
+        .where(eq(systemSettings.key, "ledger_start_date"))
+        .limit(1);
+
+      if (existingLedgerDate.length > 0) {
+        await db
+          .update(systemSettings)
+          .set({ value: asOfDate, updatedAt: new Date() })
+          .where(eq(systemSettings.key, "ledger_start_date"));
+      } else {
+        await db.insert(systemSettings).values({
+          key: "ledger_start_date",
+          value: asOfDate,
+        });
+      }
+
       logAudit(req, "OPENING_BALANCE_IMPORT", {
         resourceType: "StockTransaction",
-        detail: `Imported ${created} opening balance transactions as of ${asOfDate}`,
+        detail: `Imported ${created} opening balance transactions as of ${asOfDate}. Ledger start date set to ${asOfDate}.`,
       });
 
       res.json({ created, asOfDate });
@@ -311,7 +331,7 @@ export function registerOpeningBalanceRoutes(router: Router) {
   });
 
   // ─── Pull from Google Sheets directly ─────────────
-  router.get("/api/stock-in/opening-balance/pull-sheet", isAdmin, async (req, res) => {
+  router.get("/api/stock-in/opening-balance/pull-sheet", isAuthenticated, async (req, res) => {
     try {
       const googleAccessToken = (req.user as any)?.googleAccessToken;
       if (!googleAccessToken) {
@@ -430,7 +450,7 @@ export function registerOpeningBalanceRoutes(router: Router) {
   });
 
   // ─── Debug: show raw sheet data ───────────────────
-  router.get("/api/stock-in/opening-balance/debug-sheet", isAdmin, async (req, res) => {
+  router.get("/api/stock-in/opening-balance/debug-sheet", isAuthenticated, async (req, res) => {
     try {
       const googleAccessToken = (req.user as any)?.googleAccessToken;
       if (!googleAccessToken) return res.status(401).json({ message: "No Google token" });

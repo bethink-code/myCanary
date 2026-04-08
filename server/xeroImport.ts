@@ -6,7 +6,8 @@ import { db } from "./db";
 import { products, stockTransactions, apBrandMappings, batches } from "../shared/schema";
 import { eq, and, asc, desc, sql, like } from "drizzle-orm";
 import { logAudit } from "./auditLog";
-import { isAuthenticated, isAdmin } from "./routes";
+import { isAuthenticated } from "./routes";
+import { systemSettings } from "../shared/schema";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
@@ -151,11 +152,19 @@ export function registerXeroRoutes(router: Router) {
           });
         }
 
+        // Include ledger start date so the UI can warn about date selection
+        const ledgerSetting = await db
+          .select()
+          .from(systemSettings)
+          .where(eq(systemSettings.key, "ledger_start_date"))
+          .limit(1);
+
         res.json({
           fromDate,
           toDate,
           totalRows: rawRows.length,
           parsed,
+          ledgerStartDate: ledgerSetting[0]?.value ?? null,
         });
       } catch (err: any) {
         console.error("Xero import preview error:", err);
@@ -168,7 +177,6 @@ export function registerXeroRoutes(router: Router) {
   const commitSchema = z.object({
     fromDate: z.string(),
     toDate: z.string(),
-    force: z.boolean().optional(),
     rows: z.array(
       z.object({
         baseSku: z.string(),
@@ -179,7 +187,7 @@ export function registerXeroRoutes(router: Router) {
     ),
   });
 
-  router.post("/api/xero/import/commit", isAdmin, async (req, res) => {
+  router.post("/api/xero/import/commit", isAuthenticated, async (req, res) => {
     try {
       const parsed = commitSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -190,7 +198,33 @@ export function registerXeroRoutes(router: Router) {
       const userId = (req.user as any)?.id;
       const reference = `Xero import ${fromDate} to ${toDate}`;
 
-      // Check for existing import with same period
+      // ── Guard 1: Ledger start date ──
+      // The opening balance represents stock on hand AS OF that date,
+      // already net of all prior sales. Importing Xero sales from before
+      // that date would double-count those sales and create false negatives.
+      const ledgerSetting = await db
+        .select()
+        .from(systemSettings)
+        .where(eq(systemSettings.key, "ledger_start_date"))
+        .limit(1);
+
+      if (ledgerSetting.length === 0) {
+        return res.status(400).json({
+          message: "No opening balance has been imported yet. Import opening balances first to establish the ledger start date.",
+          needsOpeningBalance: true,
+        });
+      }
+
+      const ledgerStartDate = ledgerSetting[0].value!;
+      if (fromDate < ledgerStartDate) {
+        return res.status(400).json({
+          message: `Cannot import sales before the ledger start date (${ledgerStartDate}). Opening balances already account for all sales up to that date. Please set the From Date to ${ledgerStartDate} or later.`,
+          ledgerStartDate,
+        });
+      }
+
+      // ── Guard 2: No duplicate imports ──
+      // Once a period is imported, it cannot be re-imported.
       const existing = await db
         .select()
         .from(stockTransactions)
@@ -203,22 +237,10 @@ export function registerXeroRoutes(router: Router) {
         .limit(1);
 
       if (existing.length > 0) {
-        // Allow re-import only if explicitly confirmed via force flag
-        if (!req.body.force) {
-          return res.status(409).json({
-            message: `This period has already been imported (${fromDate} to ${toDate}).`,
-            alreadyImported: true,
-          });
-        }
-        // Delete existing transactions for this period before re-importing
-        await db
-          .delete(stockTransactions)
-          .where(
-            and(
-              eq(stockTransactions.transactionType, "SALES_OUT"),
-              eq(stockTransactions.reference, reference)
-            )
-          );
+        return res.status(409).json({
+          message: `This period has already been imported (${fromDate} to ${toDate}). Each period can only be imported once.`,
+          alreadyImported: true,
+        });
       }
 
       // Get the period month/year from the toDate
@@ -283,6 +305,24 @@ export function registerXeroRoutes(router: Router) {
     } catch (err: any) {
       console.error("Xero import commit error:", err);
       res.status(500).json({ message: "Failed to commit import", error: err.message });
+    }
+  });
+
+  // ─── Ledger start date ────────────────────────────
+  router.get("/api/xero/import/ledger-date", isAuthenticated, async (_req, res) => {
+    try {
+      const ledgerSetting = await db
+        .select()
+        .from(systemSettings)
+        .where(eq(systemSettings.key, "ledger_start_date"))
+        .limit(1);
+
+      res.json({
+        ledgerStartDate: ledgerSetting[0]?.value ?? null,
+        hasOpeningBalance: ledgerSetting.length > 0,
+      });
+    } catch (err: any) {
+      res.status(500).json({ message: "Failed to fetch ledger date", error: err.message });
     }
   });
 

@@ -74,12 +74,12 @@ export function registerRoutes(router: Router) {
   });
 
   // ─── Admin: Users ────────────────────────────────
-  router.get("/api/admin/users", isAdmin, async (_req, res) => {
+  router.get("/api/admin/users", isAuthenticated, async (_req, res) => {
     const result = await getAllUsers();
     res.json(result);
   });
 
-  router.patch("/api/admin/users/:id/admin", isAdmin, async (req, res) => {
+  router.patch("/api/admin/users/:id/admin", isAuthenticated, async (req, res) => {
     const id = parseInt(req.params.id, 10);
     const { isAdmin: makeAdmin } = req.body;
     const updated = await updateUser(id, { isAdmin: !!makeAdmin });
@@ -92,12 +92,12 @@ export function registerRoutes(router: Router) {
   });
 
   // ─── Admin: Invites ──────────────────────────────
-  router.get("/api/admin/invites", isAdmin, async (_req, res) => {
+  router.get("/api/admin/invites", isAuthenticated, async (_req, res) => {
     const result = await getInvitedUsers();
     res.json(result);
   });
 
-  router.post("/api/admin/invites", isAdmin, async (req, res) => {
+  router.post("/api/admin/invites", isAuthenticated, async (req, res) => {
     const { email } = req.body;
     if (!email) return res.status(400).json({ message: "Email required" });
     const user = req.user as any;
@@ -106,7 +106,7 @@ export function registerRoutes(router: Router) {
     res.json(result[0]);
   });
 
-  router.delete("/api/admin/invites/:id", isAdmin, async (req, res) => {
+  router.delete("/api/admin/invites/:id", isAuthenticated, async (req, res) => {
     const id = parseInt(req.params.id, 10);
     await removeInvitedUser(id);
     logAudit(req, "INVITE_REMOVED", { resourceType: "Invite", resourceId: String(id) });
@@ -114,12 +114,12 @@ export function registerRoutes(router: Router) {
   });
 
   // ─── Admin: Access Requests ──────────────────────
-  router.get("/api/admin/access-requests", isAdmin, async (_req, res) => {
+  router.get("/api/admin/access-requests", isAuthenticated, async (_req, res) => {
     const result = await getAccessRequests();
     res.json(result);
   });
 
-  router.patch("/api/admin/access-requests/:id", isAdmin, async (req, res) => {
+  router.patch("/api/admin/access-requests/:id", isAuthenticated, async (req, res) => {
     const id = parseInt(req.params.id, 10);
     const { status } = req.body;
     if (!["approved", "declined"].includes(status)) {
@@ -134,7 +134,7 @@ export function registerRoutes(router: Router) {
   });
 
   // ─── Admin: Audit Logs ───────────────────────────
-  router.get("/api/admin/audit-logs", isAdmin, async (_req, res) => {
+  router.get("/api/admin/audit-logs", isAuthenticated, async (_req, res) => {
     const result = await db
       .select()
       .from(auditLogs)
@@ -144,7 +144,7 @@ export function registerRoutes(router: Router) {
   });
 
   // ─── Admin: Security Overview ────────────────────
-  router.get("/api/admin/security-overview", isAdmin, async (_req, res) => {
+  router.get("/api/admin/security-overview", isAuthenticated, async (_req, res) => {
     const allUsers = await getAllUsers();
     const admins = allUsers.filter((u) => u.isAdmin);
     res.json({
@@ -258,7 +258,7 @@ export function registerRoutes(router: Router) {
     notes: z.string().nullable().optional(),
   });
 
-  router.patch("/api/products/:skuCode", isAdmin, async (req, res) => {
+  router.patch("/api/products/:skuCode", isAuthenticated, async (req, res) => {
     try {
       const { skuCode } = req.params;
       const parsed = updateProductSchema.safeParse(req.body);
@@ -421,7 +421,7 @@ export function registerRoutes(router: Router) {
     notes: z.string().optional(),
   });
 
-  router.post("/api/batches", isAdmin, async (req, res) => {
+  router.post("/api/batches", isAuthenticated, async (req, res) => {
     try {
       const parsed = createBatchSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -489,7 +489,7 @@ export function registerRoutes(router: Router) {
     batchId: z.number().int().positive().optional(),
   });
 
-  router.post("/api/stock/adjustment", isAdmin, async (req, res) => {
+  router.post("/api/stock/adjustment", isAuthenticated, async (req, res) => {
     try {
       const parsed = adjustmentSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -642,7 +642,7 @@ export function registerRoutes(router: Router) {
     cases: z.number().int().positive(),
   });
 
-  router.post("/api/stock/transfer", isAdmin, async (req, res) => {
+  router.post("/api/stock/transfer", isAuthenticated, async (req, res) => {
     try {
       const parsed = transferSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -945,7 +945,7 @@ export function registerRoutes(router: Router) {
     status: z.enum(["CONFIRMED", "INVOICED", "DISPATCHED"]),
   });
 
-  router.patch("/api/orders/:id/status", isAdmin, async (req, res) => {
+  router.patch("/api/orders/:id/status", isAuthenticated, async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
       const parsed = updateOrderStatusSchema.safeParse(req.body);
@@ -1033,7 +1033,7 @@ export function registerRoutes(router: Router) {
     xeroInvoiceRef: z.string().max(100).optional(),
   });
 
-  router.patch("/api/orders/:id", isAdmin, async (req, res) => {
+  router.patch("/api/orders/:id", isAuthenticated, async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
       const parsed = updateOrderFieldsSchema.safeParse(req.body);

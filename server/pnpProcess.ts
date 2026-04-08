@@ -14,7 +14,7 @@ import {
 } from "../shared/schema";
 import { eq, and, desc, asc, sql, sum } from "drizzle-orm";
 import { logAudit } from "./auditLog";
-import { isAuthenticated, isAdmin } from "./routes";
+import { isAuthenticated } from "./routes";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
@@ -179,7 +179,7 @@ export function registerPnpRoutes(router: Router) {
     ),
   });
 
-  router.post("/api/pnp/create", isAdmin, async (req, res) => {
+  router.post("/api/pnp/create", isAuthenticated, async (req, res) => {
     try {
       const parsed = createSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -471,7 +471,7 @@ export function registerPnpRoutes(router: Router) {
   });
 
   // ─── Mark as dispatched ───
-  router.post("/api/pnp/orders/:id/dispatch", isAdmin, async (req, res) => {
+  router.post("/api/pnp/orders/:id/dispatch", isAuthenticated, async (req, res) => {
     try {
       const orderId = Number(req.params.id);
       if (isNaN(orderId)) {

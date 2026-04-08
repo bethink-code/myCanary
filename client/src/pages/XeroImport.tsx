@@ -72,6 +72,15 @@ export default function XeroImport() {
   // Step 3 state
   const [commitCount, setCommitCount] = useState(0);
 
+  // Ledger start date — sales can only be imported after this date
+  const { data: ledgerData } = useQuery<{ ledgerStartDate: string | null; hasOpeningBalance: boolean }>({
+    queryKey: ["ledger-date"],
+    queryFn: () => apiRequest("/api/xero/import/ledger-date"),
+  });
+
+  const ledgerStartDate = ledgerData?.ledgerStartDate ?? null;
+  const hasOpeningBalance = ledgerData?.hasOpeningBalance ?? false;
+
   // Upload / preview mutation
   const previewMutation = useMutation({
     mutationFn: async () => {
@@ -115,19 +124,12 @@ export default function XeroImport() {
   });
 
   // Check if period already imported
-  const [showOverwriteConfirm, setShowOverwriteConfirm] = useState(false);
-
   const periodAlreadyImported = importHistory.some(
     (h) => h.fromDate === fromDate && h.toDate === toDate
   );
 
-  const handlePullClick = () => {
-    if (periodAlreadyImported) {
-      setShowOverwriteConfirm(true);
-    } else {
-      apiPullMutation.mutate();
-    }
-  };
+  // Check if from date is before ledger start
+  const fromDateBeforeLedger = ledgerStartDate && fromDate && fromDate < ledgerStartDate;
 
   // API pull mutation
   const apiPullMutation = useMutation({
@@ -316,6 +318,25 @@ export default function XeroImport() {
       {/* Step 1: Import Source */}
       {step === 1 && (
         <div className="space-y-4">
+          {/* No opening balance warning */}
+          {!hasOpeningBalance && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-800">
+              <strong>Opening balance required.</strong> You need to import opening balances first to establish a ledger start date.
+              Sales imports can only cover periods <em>after</em> the opening balance date.
+              <Link to="/stock/opening-balance" className="ml-2 font-medium text-amber-900 underline">
+                Import Opening Balances
+              </Link>
+            </div>
+          )}
+
+          {/* Ledger start date info */}
+          {ledgerStartDate && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-sm text-blue-800">
+              Ledger start date: <strong>{new Date(ledgerStartDate).toLocaleDateString("en-ZA", { day: "numeric", month: "long", year: "numeric" })}</strong>.
+              Sales imports must cover periods after this date — earlier sales are already accounted for in the opening balance.
+            </div>
+          )}
+
           {/* Import History */}
           <div className="bg-white rounded-xl border border-border overflow-hidden">
             <div className="px-5 py-3 border-b border-border bg-slate-50">
@@ -460,45 +481,24 @@ export default function XeroImport() {
                     </div>
                   )}
 
-                  {/* Already imported warning */}
-                  {periodAlreadyImported && fromDate && toDate && !showOverwriteConfirm && (
-                    <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-4 py-3 text-sm">
-                      This period has already been imported. Pulling again will let you review the data but won't create duplicate records.
+                  {/* Date before ledger start warning */}
+                  {fromDateBeforeLedger && (
+                    <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">
+                      <strong>From Date is before the ledger start date ({ledgerStartDate}).</strong> Opening balances already account for all sales up to that date.
+                      Set the From Date to {ledgerStartDate} or later.
                     </div>
                   )}
 
-                  {/* Overwrite confirmation dialog */}
-                  {showOverwriteConfirm && (
-                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-3">
-                      <p className="text-sm font-medium text-amber-800">
-                        This period ({fromDate} to {toDate}) has already been imported.
-                      </p>
-                      <p className="text-sm text-amber-700">
-                        Would you like to pull the data again from Xero? This will only fetch — no stock records will be changed until you confirm the import.
-                      </p>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => {
-                            setShowOverwriteConfirm(false);
-                            apiPullMutation.mutate();
-                          }}
-                          className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700"
-                        >
-                          Yes, Pull Again
-                        </button>
-                        <button
-                          onClick={() => setShowOverwriteConfirm(false)}
-                          className="px-4 py-2 border border-border text-slate-700 rounded-lg text-sm hover:bg-slate-50"
-                        >
-                          Cancel
-                        </button>
-                      </div>
+                  {/* Already imported block */}
+                  {periodAlreadyImported && fromDate && toDate && (
+                    <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-4 py-3 text-sm">
+                      This period ({fromDate} to {toDate}) has already been imported. Each period can only be imported once.
                     </div>
                   )}
 
                   <button
-                    onClick={handlePullClick}
-                    disabled={!fromDate || !toDate || apiPullMutation.isPending}
+                    onClick={() => apiPullMutation.mutate()}
+                    disabled={!fromDate || !toDate || apiPullMutation.isPending || !hasOpeningBalance || !!fromDateBeforeLedger || periodAlreadyImported}
                     className="px-6 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {apiPullMutation.isPending ? "Pulling from Xero..." : "Pull Sales Data"}
@@ -593,6 +593,21 @@ export default function XeroImport() {
                 </div>
               </div>
 
+              {/* Date before ledger start warning */}
+              {fromDateBeforeLedger && (
+                <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">
+                  <strong>From Date is before the ledger start date ({ledgerStartDate}).</strong> Opening balances already account for all sales up to that date.
+                  Set the From Date to {ledgerStartDate} or later.
+                </div>
+              )}
+
+              {/* Already imported block */}
+              {periodAlreadyImported && fromDate && toDate && (
+                <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-4 py-3 text-sm">
+                  This period ({fromDate} to {toDate}) has already been imported. Each period can only be imported once.
+                </div>
+              )}
+
               {/* Error */}
               {previewMutation.isError && (
                 <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">
@@ -603,7 +618,7 @@ export default function XeroImport() {
               {/* Upload button */}
               <button
                 onClick={() => previewMutation.mutate()}
-                disabled={!file || !fromDate || !toDate || previewMutation.isPending}
+                disabled={!file || !fromDate || !toDate || previewMutation.isPending || !hasOpeningBalance || !!fromDateBeforeLedger || periodAlreadyImported}
                 className="px-6 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {previewMutation.isPending ? "Uploading..." : "Upload & Preview"}

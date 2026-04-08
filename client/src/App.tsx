@@ -42,7 +42,7 @@ function TermsModal({ onAccept }: { onAccept: () => void }) {
 }
 
 function AppLayout() {
-  const { user, isAdmin } = useAuth();
+  const { user } = useAuth();
   const qc = useQueryClient();
 
   const handleLogout = async () => {
@@ -73,16 +73,12 @@ function AppLayout() {
                 <Link to="/pnp" className="text-sm text-slate-600 hover:text-slate-900">
                   PnP Weekly
                 </Link>
-                {isAdmin && (
-                  <Link to="/xero/import" className="text-sm text-slate-600 hover:text-slate-900">
-                    Stock Out: Xero
-                  </Link>
-                )}
-                {isAdmin && (
-                  <Link to="/settings" className="text-sm text-slate-600 hover:text-slate-900">
-                    Settings
-                  </Link>
-                )}
+                <Link to="/xero/import" className="text-sm text-slate-600 hover:text-slate-900">
+                  Stock Out: Xero
+                </Link>
+                <Link to="/settings" className="text-sm text-slate-600 hover:text-slate-900">
+                  Settings
+                </Link>
               </div>
             </div>
             <div className="flex items-center gap-3">
@@ -109,11 +105,11 @@ function AppLayout() {
           <Route path="/orders/new" element={<OrderDetail />} />
           <Route path="/orders/:id" element={<OrderDetail />} />
           <Route path="/pnp" element={<PnpWeekly />} />
-          {isAdmin && <Route path="/stock/delivery" element={<DeliveryReceipt />} />}
-          {isAdmin && <Route path="/stock/opening-balance" element={<OpeningBalance />} />}
-          {isAdmin && <Route path="/xero/import" element={<XeroImport />} />}
-          {isAdmin && <Route path="/settings" element={<Settings />} />}
-          {isAdmin && <Route path="/admin" element={<Admin />} />}
+          <Route path="/stock/delivery" element={<DeliveryReceipt />} />
+          <Route path="/stock/opening-balance" element={<OpeningBalance />} />
+          <Route path="/xero/import" element={<XeroImport />} />
+          <Route path="/settings" element={<Settings />} />
+          <Route path="/admin" element={<Admin />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </main>

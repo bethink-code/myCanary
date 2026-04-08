@@ -435,10 +435,6 @@ function isAuthenticated(req, res, next) {
   if (req.isAuthenticated()) return next();
   res.status(401).json({ message: "Not authenticated" });
 }
-function isAdmin(req, res, next) {
-  if (req.isAuthenticated() && req.user?.isAdmin) return next();
-  res.status(403).json({ message: "Admin access required" });
-}
 function registerRoutes(router2) {
   router2.get("/api/auth/user", (req, res) => {
     if (!req.isAuthenticated()) return res.json(null);
@@ -470,11 +466,11 @@ function registerRoutes(router2) {
     const result = await createAccessRequest(parsed.data);
     res.json(result[0]);
   });
-  router2.get("/api/admin/users", isAdmin, async (_req, res) => {
+  router2.get("/api/admin/users", isAuthenticated, async (_req, res) => {
     const result = await getAllUsers();
     res.json(result);
   });
-  router2.patch("/api/admin/users/:id/admin", isAdmin, async (req, res) => {
+  router2.patch("/api/admin/users/:id/admin", isAuthenticated, async (req, res) => {
     const id = parseInt(req.params.id, 10);
     const { isAdmin: makeAdmin } = req.body;
     const updated = await updateUser(id, { isAdmin: !!makeAdmin });
@@ -485,11 +481,11 @@ function registerRoutes(router2) {
     });
     res.json(updated);
   });
-  router2.get("/api/admin/invites", isAdmin, async (_req, res) => {
+  router2.get("/api/admin/invites", isAuthenticated, async (_req, res) => {
     const result = await getInvitedUsers();
     res.json(result);
   });
-  router2.post("/api/admin/invites", isAdmin, async (req, res) => {
+  router2.post("/api/admin/invites", isAuthenticated, async (req, res) => {
     const { email } = req.body;
     if (!email) return res.status(400).json({ message: "Email required" });
     const user = req.user;
@@ -497,17 +493,17 @@ function registerRoutes(router2) {
     logAudit(req, "INVITE_CREATED", { resourceType: "Invite", detail: email });
     res.json(result[0]);
   });
-  router2.delete("/api/admin/invites/:id", isAdmin, async (req, res) => {
+  router2.delete("/api/admin/invites/:id", isAuthenticated, async (req, res) => {
     const id = parseInt(req.params.id, 10);
     await removeInvitedUser(id);
     logAudit(req, "INVITE_REMOVED", { resourceType: "Invite", resourceId: String(id) });
     res.json({ ok: true });
   });
-  router2.get("/api/admin/access-requests", isAdmin, async (_req, res) => {
+  router2.get("/api/admin/access-requests", isAuthenticated, async (_req, res) => {
     const result = await getAccessRequests();
     res.json(result);
   });
-  router2.patch("/api/admin/access-requests/:id", isAdmin, async (req, res) => {
+  router2.patch("/api/admin/access-requests/:id", isAuthenticated, async (req, res) => {
     const id = parseInt(req.params.id, 10);
     const { status } = req.body;
     if (!["approved", "declined"].includes(status)) {
@@ -520,11 +516,11 @@ function registerRoutes(router2) {
     });
     res.json(result[0]);
   });
-  router2.get("/api/admin/audit-logs", isAdmin, async (_req, res) => {
+  router2.get("/api/admin/audit-logs", isAuthenticated, async (_req, res) => {
     const result = await db.select().from(auditLogs).orderBy(desc(auditLogs.createdAt)).limit(200);
     res.json(result);
   });
-  router2.get("/api/admin/security-overview", isAdmin, async (_req, res) => {
+  router2.get("/api/admin/security-overview", isAuthenticated, async (_req, res) => {
     const allUsers = await getAllUsers();
     const admins = allUsers.filter((u) => u.isAdmin);
     res.json({
@@ -610,7 +606,7 @@ function registerRoutes(router2) {
     weightKg: z.number().int().positive().nullable().optional(),
     notes: z.string().nullable().optional()
   });
-  router2.patch("/api/products/:skuCode", isAdmin, async (req, res) => {
+  router2.patch("/api/products/:skuCode", isAuthenticated, async (req, res) => {
     try {
       const { skuCode } = req.params;
       const parsed = updateProductSchema.safeParse(req.body);
@@ -714,7 +710,7 @@ function registerRoutes(router2) {
     deliveryNoteRef: z.string().max(100).optional(),
     notes: z.string().optional()
   });
-  router2.post("/api/batches", isAdmin, async (req, res) => {
+  router2.post("/api/batches", isAuthenticated, async (req, res) => {
     try {
       const parsed = createBatchSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -767,7 +763,7 @@ function registerRoutes(router2) {
     notes: z.string().min(1, "Notes are required for adjustments"),
     batchId: z.number().int().positive().optional()
   });
-  router2.post("/api/stock/adjustment", isAdmin, async (req, res) => {
+  router2.post("/api/stock/adjustment", isAuthenticated, async (req, res) => {
     try {
       const parsed = adjustmentSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -876,7 +872,7 @@ function registerRoutes(router2) {
     skuCode: z.string().min(1).max(50),
     cases: z.number().int().positive()
   });
-  router2.post("/api/stock/transfer", isAdmin, async (req, res) => {
+  router2.post("/api/stock/transfer", isAuthenticated, async (req, res) => {
     try {
       const parsed = transferSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -1086,7 +1082,7 @@ function registerRoutes(router2) {
   const updateOrderStatusSchema = z.object({
     status: z.enum(["CONFIRMED", "INVOICED", "DISPATCHED"])
   });
-  router2.patch("/api/orders/:id/status", isAdmin, async (req, res) => {
+  router2.patch("/api/orders/:id/status", isAuthenticated, async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
       const parsed = updateOrderStatusSchema.safeParse(req.body);
@@ -1144,7 +1140,7 @@ function registerRoutes(router2) {
     waybillNumber: z.string().max(100).optional(),
     xeroInvoiceRef: z.string().max(100).optional()
   });
-  router2.patch("/api/orders/:id", isAdmin, async (req, res) => {
+  router2.patch("/api/orders/:id", isAuthenticated, async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
       const parsed = updateOrderFieldsSchema.safeParse(req.body);
@@ -1335,11 +1331,13 @@ function registerXeroRoutes(router2) {
             mapped: true
           });
         }
+        const ledgerSetting = await db.select().from(systemSettings).where(eq3(systemSettings.key, "ledger_start_date")).limit(1);
         res.json({
           fromDate,
           toDate,
           totalRows: rawRows.length,
-          parsed
+          parsed,
+          ledgerStartDate: ledgerSetting[0]?.value ?? null
         });
       } catch (err) {
         console.error("Xero import preview error:", err);
@@ -1350,7 +1348,6 @@ function registerXeroRoutes(router2) {
   const commitSchema = z2.object({
     fromDate: z2.string(),
     toDate: z2.string(),
-    force: z2.boolean().optional(),
     rows: z2.array(
       z2.object({
         baseSku: z2.string(),
@@ -1360,7 +1357,7 @@ function registerXeroRoutes(router2) {
       })
     )
   });
-  router2.post("/api/xero/import/commit", isAdmin, async (req, res) => {
+  router2.post("/api/xero/import/commit", isAuthenticated, async (req, res) => {
     try {
       const parsed = commitSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -1369,6 +1366,20 @@ function registerXeroRoutes(router2) {
       const { fromDate, toDate, rows } = parsed.data;
       const userId = req.user?.id;
       const reference = `Xero import ${fromDate} to ${toDate}`;
+      const ledgerSetting = await db.select().from(systemSettings).where(eq3(systemSettings.key, "ledger_start_date")).limit(1);
+      if (ledgerSetting.length === 0) {
+        return res.status(400).json({
+          message: "No opening balance has been imported yet. Import opening balances first to establish the ledger start date.",
+          needsOpeningBalance: true
+        });
+      }
+      const ledgerStartDate = ledgerSetting[0].value;
+      if (fromDate < ledgerStartDate) {
+        return res.status(400).json({
+          message: `Cannot import sales before the ledger start date (${ledgerStartDate}). Opening balances already account for all sales up to that date. Please set the From Date to ${ledgerStartDate} or later.`,
+          ledgerStartDate
+        });
+      }
       const existing = await db.select().from(stockTransactions).where(
         and2(
           eq3(stockTransactions.transactionType, "SALES_OUT"),
@@ -1376,18 +1387,10 @@ function registerXeroRoutes(router2) {
         )
       ).limit(1);
       if (existing.length > 0) {
-        if (!req.body.force) {
-          return res.status(409).json({
-            message: `This period has already been imported (${fromDate} to ${toDate}).`,
-            alreadyImported: true
-          });
-        }
-        await db.delete(stockTransactions).where(
-          and2(
-            eq3(stockTransactions.transactionType, "SALES_OUT"),
-            eq3(stockTransactions.reference, reference)
-          )
-        );
+        return res.status(409).json({
+          message: `This period has already been imported (${fromDate} to ${toDate}). Each period can only be imported once.`,
+          alreadyImported: true
+        });
       }
       const toDateObj = new Date(toDate);
       const periodMonth = toDateObj.getMonth() + 1;
@@ -1430,6 +1433,17 @@ function registerXeroRoutes(router2) {
     } catch (err) {
       console.error("Xero import commit error:", err);
       res.status(500).json({ message: "Failed to commit import", error: err.message });
+    }
+  });
+  router2.get("/api/xero/import/ledger-date", isAuthenticated, async (_req, res) => {
+    try {
+      const ledgerSetting = await db.select().from(systemSettings).where(eq3(systemSettings.key, "ledger_start_date")).limit(1);
+      res.json({
+        ledgerStartDate: ledgerSetting[0]?.value ?? null,
+        hasOpeningBalance: ledgerSetting.length > 0
+      });
+    } catch (err) {
+      res.status(500).json({ message: "Failed to fetch ledger date", error: err.message });
     }
   });
   router2.get("/api/xero/import/history", isAuthenticated, async (_req, res) => {
@@ -1591,7 +1605,7 @@ function registerPnpRoutes(router2) {
       })
     )
   });
-  router2.post("/api/pnp/create", isAdmin, async (req, res) => {
+  router2.post("/api/pnp/create", isAuthenticated, async (req, res) => {
     try {
       const parsed = createSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -1792,7 +1806,7 @@ function registerPnpRoutes(router2) {
       res.status(500).json({ message: "Failed to generate dispatch instruction", error: err.message });
     }
   });
-  router2.post("/api/pnp/orders/:id/dispatch", isAdmin, async (req, res) => {
+  router2.post("/api/pnp/orders/:id/dispatch", isAuthenticated, async (req, res) => {
     try {
       const orderId = Number(req.params.id);
       if (isNaN(orderId)) {
@@ -1950,7 +1964,7 @@ async function getValidAccessToken() {
   return { accessToken: tokens.accessToken, tenantId: tokens.tenantId };
 }
 function registerXeroAuthRoutes(router2) {
-  router2.get("/auth/xero", isAdmin, (_req, res) => {
+  router2.get("/auth/xero", isAuthenticated, (_req, res) => {
     const params = new URLSearchParams({
       response_type: "code",
       client_id: process.env.XERO_CLIENT_ID,
@@ -2014,7 +2028,7 @@ function registerXeroAuthRoutes(router2) {
       res.redirect(`${clientUrl}/settings?xero=error&message=${err.message}`);
     }
   });
-  router2.get("/api/xero/status", isAdmin, async (_req, res) => {
+  router2.get("/api/xero/status", isAuthenticated, async (_req, res) => {
     const tokens = await getXeroTokens();
     const orgName = await db.select().from(systemSettings).where(eq5(systemSettings.key, "xero_org_name"));
     res.json({
@@ -2023,13 +2037,13 @@ function registerXeroAuthRoutes(router2) {
       tokenExpiry: tokens?.expiresAt ? new Date(tokens.expiresAt).toISOString() : null
     });
   });
-  router2.post("/api/xero/disconnect", isAdmin, async (req, res) => {
+  router2.post("/api/xero/disconnect", isAuthenticated, async (req, res) => {
     await db.delete(systemSettings).where(eq5(systemSettings.key, "xero_tokens"));
     await db.delete(systemSettings).where(eq5(systemSettings.key, "xero_org_name"));
     logAudit(req, "XERO_DISCONNECTED");
     res.json({ ok: true });
   });
-  router2.get("/api/xero/sales-report", isAdmin, async (req, res) => {
+  router2.get("/api/xero/sales-report", isAuthenticated, async (req, res) => {
     try {
       const { fromDate, toDate } = req.query;
       if (!fromDate || !toDate) {
@@ -2284,7 +2298,7 @@ function registerOpeningBalanceRoutes(router2) {
       }
     }
   );
-  router2.post("/api/stock-in/opening-balance/commit", isAdmin, async (req, res) => {
+  router2.post("/api/stock-in/opening-balance/commit", isAuthenticated, async (req, res) => {
     try {
       const { rows, asOfDate } = req.body;
       if (!rows || !Array.isArray(rows) || !asOfDate) {
@@ -2366,9 +2380,18 @@ function registerOpeningBalanceRoutes(router2) {
           await db.update(products).set({ reorderPointOverride: row.reorderPoint }).where(eq6(products.skuCode, row.skuCode));
         }
       }
+      const existingLedgerDate = await db.select().from(systemSettings).where(eq6(systemSettings.key, "ledger_start_date")).limit(1);
+      if (existingLedgerDate.length > 0) {
+        await db.update(systemSettings).set({ value: asOfDate, updatedAt: /* @__PURE__ */ new Date() }).where(eq6(systemSettings.key, "ledger_start_date"));
+      } else {
+        await db.insert(systemSettings).values({
+          key: "ledger_start_date",
+          value: asOfDate
+        });
+      }
       logAudit(req, "OPENING_BALANCE_IMPORT", {
         resourceType: "StockTransaction",
-        detail: `Imported ${created} opening balance transactions as of ${asOfDate}`
+        detail: `Imported ${created} opening balance transactions as of ${asOfDate}. Ledger start date set to ${asOfDate}.`
       });
       res.json({ created, asOfDate });
     } catch (err) {
@@ -2376,7 +2399,7 @@ function registerOpeningBalanceRoutes(router2) {
       res.status(500).json({ message: "Failed to import opening balances", error: err.message });
     }
   });
-  router2.get("/api/stock-in/opening-balance/pull-sheet", isAdmin, async (req, res) => {
+  router2.get("/api/stock-in/opening-balance/pull-sheet", isAuthenticated, async (req, res) => {
     try {
       const googleAccessToken = req.user?.googleAccessToken;
       if (!googleAccessToken) {
@@ -2474,7 +2497,7 @@ function registerOpeningBalanceRoutes(router2) {
       res.status(500).json({ message: "Failed to pull from Google Sheets", error: err.message });
     }
   });
-  router2.get("/api/stock-in/opening-balance/debug-sheet", isAdmin, async (req, res) => {
+  router2.get("/api/stock-in/opening-balance/debug-sheet", isAuthenticated, async (req, res) => {
     try {
       const googleAccessToken = req.user?.googleAccessToken;
       if (!googleAccessToken) return res.status(401).json({ message: "No Google token" });

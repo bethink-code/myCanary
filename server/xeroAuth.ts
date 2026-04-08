@@ -2,7 +2,7 @@ import { Router, Request, Response } from "express";
 import { db } from "./db";
 import { systemSettings } from "../shared/schema";
 import { eq } from "drizzle-orm";
-import { isAdmin } from "./routes";
+import { isAuthenticated } from "./routes";
 import { logAudit } from "./auditLog";
 
 // Xero OAuth 2.0 configuration
@@ -109,7 +109,7 @@ async function getValidAccessToken(): Promise<{ accessToken: string; tenantId: s
 
 export function registerXeroAuthRoutes(router: Router) {
   // ─── Initiate Xero OAuth ────────────────────────
-  router.get("/auth/xero", isAdmin, (_req: Request, res: Response) => {
+  router.get("/auth/xero", isAuthenticated, (_req: Request, res: Response) => {
     const params = new URLSearchParams({
       response_type: "code",
       client_id: process.env.XERO_CLIENT_ID!,
@@ -196,7 +196,7 @@ export function registerXeroAuthRoutes(router: Router) {
   });
 
   // ─── Xero Connection Status ─────────────────────
-  router.get("/api/xero/status", isAdmin, async (_req, res) => {
+  router.get("/api/xero/status", isAuthenticated, async (_req, res) => {
     const tokens = await getXeroTokens();
     const orgName = await db
       .select()
@@ -211,7 +211,7 @@ export function registerXeroAuthRoutes(router: Router) {
   });
 
   // ─── Disconnect Xero ────────────────────────────
-  router.post("/api/xero/disconnect", isAdmin, async (req, res) => {
+  router.post("/api/xero/disconnect", isAuthenticated, async (req, res) => {
     await db.delete(systemSettings).where(eq(systemSettings.key, "xero_tokens"));
     await db.delete(systemSettings).where(eq(systemSettings.key, "xero_org_name"));
     logAudit(req, "XERO_DISCONNECTED");
@@ -219,7 +219,7 @@ export function registerXeroAuthRoutes(router: Router) {
   });
 
   // ─── Pull Sales by Item Report from Xero API ───
-  router.get("/api/xero/sales-report", isAdmin, async (req, res) => {
+  router.get("/api/xero/sales-report", isAuthenticated, async (req, res) => {
     try {
       const { fromDate, toDate } = req.query;
       if (!fromDate || !toDate) {
