@@ -160,15 +160,6 @@ CREATE TABLE "pnp_product_mappings" (
 	"sku_code" varchar(50) NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "product_raw_materials" (
-	"id" serial PRIMARY KEY NOT NULL,
-	"client_id" integer NOT NULL,
-	"product_id" integer NOT NULL,
-	"raw_material_id" integer NOT NULL,
-	"quantity_per_batch" integer,
-	"notes" text
-);
---> statement-breakpoint
 CREATE TABLE "products" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"client_id" integer NOT NULL,
@@ -214,17 +205,6 @@ CREATE TABLE "purchase_orders" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "raw_materials" (
-	"id" serial PRIMARY KEY NOT NULL,
-	"client_id" integer NOT NULL,
-	"name" varchar(255) NOT NULL,
-	"current_stock" integer DEFAULT 0,
-	"unit_of_measure" varchar(50),
-	"supplier" varchar(255),
-	"reorder_flag" boolean DEFAULT false,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL
-);
---> statement-breakpoint
 CREATE TABLE "sessions" (
 	"sid" varchar(255) PRIMARY KEY NOT NULL,
 	"sess" json NOT NULL,
@@ -247,6 +227,48 @@ CREATE TABLE "stock_transactions" (
 	"created_by" integer,
 	"approved_by" integer,
 	"notes" text,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "supplies" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"client_id" integer NOT NULL,
+	"name" varchar(500) NOT NULL,
+	"category" varchar(20) NOT NULL,
+	"subcategory" varchar(50),
+	"unit_of_measure" varchar(50),
+	"supplier" varchar(255),
+	"supplier_contact" varchar(255),
+	"price_description" varchar(255),
+	"moq" varchar(100),
+	"lead_time" varchar(100),
+	"reorder_point" integer,
+	"is_active" boolean DEFAULT true NOT NULL,
+	"notes" text,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "supply_product_mappings" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"client_id" integer NOT NULL,
+	"supply_id" integer NOT NULL,
+	"sku_code" varchar(50) NOT NULL,
+	"quantity_per_unit" integer DEFAULT 1 NOT NULL,
+	"notes" text
+);
+--> statement-breakpoint
+CREATE TABLE "supply_transactions" (
+	"id" serial PRIMARY KEY NOT NULL,
+	"client_id" integer NOT NULL,
+	"supply_id" integer NOT NULL,
+	"transaction_type" varchar(30) NOT NULL,
+	"quantity" integer NOT NULL,
+	"transaction_date" date NOT NULL,
+	"related_po_id" integer,
+	"manufacturer_name" varchar(255),
+	"reference" varchar(255),
+	"notes" text,
+	"created_by" integer,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
@@ -295,9 +317,6 @@ ALTER TABLE "pnp_order_lines" ADD CONSTRAINT "pnp_order_lines_pnp_order_id_pnp_o
 ALTER TABLE "pnp_orders" ADD CONSTRAINT "pnp_orders_client_id_clients_id_fk" FOREIGN KEY ("client_id") REFERENCES "public"."clients"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "pnp_orders" ADD CONSTRAINT "pnp_orders_created_by_users_id_fk" FOREIGN KEY ("created_by") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "pnp_product_mappings" ADD CONSTRAINT "pnp_product_mappings_client_id_clients_id_fk" FOREIGN KEY ("client_id") REFERENCES "public"."clients"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "product_raw_materials" ADD CONSTRAINT "product_raw_materials_client_id_clients_id_fk" FOREIGN KEY ("client_id") REFERENCES "public"."clients"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "product_raw_materials" ADD CONSTRAINT "product_raw_materials_product_id_products_id_fk" FOREIGN KEY ("product_id") REFERENCES "public"."products"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "product_raw_materials" ADD CONSTRAINT "product_raw_materials_raw_material_id_raw_materials_id_fk" FOREIGN KEY ("raw_material_id") REFERENCES "public"."raw_materials"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "products" ADD CONSTRAINT "products_client_id_clients_id_fk" FOREIGN KEY ("client_id") REFERENCES "public"."clients"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "products" ADD CONSTRAINT "products_manufacturer_id_manufacturers_id_fk" FOREIGN KEY ("manufacturer_id") REFERENCES "public"."manufacturers"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "purchase_order_lines" ADD CONSTRAINT "purchase_order_lines_client_id_clients_id_fk" FOREIGN KEY ("client_id") REFERENCES "public"."clients"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
@@ -305,11 +324,17 @@ ALTER TABLE "purchase_order_lines" ADD CONSTRAINT "purchase_order_lines_po_id_pu
 ALTER TABLE "purchase_orders" ADD CONSTRAINT "purchase_orders_client_id_clients_id_fk" FOREIGN KEY ("client_id") REFERENCES "public"."clients"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "purchase_orders" ADD CONSTRAINT "purchase_orders_manufacturer_id_manufacturers_id_fk" FOREIGN KEY ("manufacturer_id") REFERENCES "public"."manufacturers"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "purchase_orders" ADD CONSTRAINT "purchase_orders_approved_by_users_id_fk" FOREIGN KEY ("approved_by") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "raw_materials" ADD CONSTRAINT "raw_materials_client_id_clients_id_fk" FOREIGN KEY ("client_id") REFERENCES "public"."clients"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "stock_transactions" ADD CONSTRAINT "stock_transactions_client_id_clients_id_fk" FOREIGN KEY ("client_id") REFERENCES "public"."clients"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "stock_transactions" ADD CONSTRAINT "stock_transactions_batch_id_batches_id_fk" FOREIGN KEY ("batch_id") REFERENCES "public"."batches"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "stock_transactions" ADD CONSTRAINT "stock_transactions_created_by_users_id_fk" FOREIGN KEY ("created_by") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "stock_transactions" ADD CONSTRAINT "stock_transactions_approved_by_users_id_fk" FOREIGN KEY ("approved_by") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "supplies" ADD CONSTRAINT "supplies_client_id_clients_id_fk" FOREIGN KEY ("client_id") REFERENCES "public"."clients"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "supply_product_mappings" ADD CONSTRAINT "supply_product_mappings_client_id_clients_id_fk" FOREIGN KEY ("client_id") REFERENCES "public"."clients"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "supply_product_mappings" ADD CONSTRAINT "supply_product_mappings_supply_id_supplies_id_fk" FOREIGN KEY ("supply_id") REFERENCES "public"."supplies"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "supply_transactions" ADD CONSTRAINT "supply_transactions_client_id_clients_id_fk" FOREIGN KEY ("client_id") REFERENCES "public"."clients"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "supply_transactions" ADD CONSTRAINT "supply_transactions_supply_id_supplies_id_fk" FOREIGN KEY ("supply_id") REFERENCES "public"."supplies"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "supply_transactions" ADD CONSTRAINT "supply_transactions_related_po_id_purchase_orders_id_fk" FOREIGN KEY ("related_po_id") REFERENCES "public"."purchase_orders"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "supply_transactions" ADD CONSTRAINT "supply_transactions_created_by_users_id_fk" FOREIGN KEY ("created_by") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "system_settings" ADD CONSTRAINT "system_settings_client_id_clients_id_fk" FOREIGN KEY ("client_id") REFERENCES "public"."clients"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "user_clients" ADD CONSTRAINT "user_clients_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "user_clients" ADD CONSTRAINT "user_clients_client_id_clients_id_fk" FOREIGN KEY ("client_id") REFERENCES "public"."clients"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint

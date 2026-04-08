@@ -36,13 +36,14 @@ __export(schema_exports, {
   pnpOrderLines: () => pnpOrderLines,
   pnpOrders: () => pnpOrders,
   pnpProductMappings: () => pnpProductMappings,
-  productRawMaterials: () => productRawMaterials,
   products: () => products,
   purchaseOrderLines: () => purchaseOrderLines,
   purchaseOrders: () => purchaseOrders,
-  rawMaterials: () => rawMaterials,
   sessions: () => sessions,
   stockTransactions: () => stockTransactions,
+  supplies: () => supplies,
+  supplyProductMappings: () => supplyProductMappings,
+  supplyTransactions: () => supplyTransactions,
   systemSettings: () => systemSettings,
   userClients: () => userClients,
   users: () => users
@@ -289,22 +290,51 @@ var systemSettings = pgTable("system_settings", {
 }, (table) => [
   uniqueIndex("system_settings_client_key_idx").on(table.clientId, table.key)
 ]);
-var rawMaterials = pgTable("raw_materials", {
+var supplies = pgTable("supplies", {
   id: serial("id").primaryKey(),
   clientId: integer("client_id").references(() => clients.id).notNull(),
-  name: varchar("name", { length: 255 }).notNull(),
-  currentStock: integer("current_stock").default(0),
+  name: varchar("name", { length: 500 }).notNull(),
+  category: varchar("category", { length: 20 }).notNull(),
+  // RAW_MATERIAL, PACKAGING
+  subcategory: varchar("subcategory", { length: 50 }),
+  // We supply, Bulk tablets, Labels, Containers, Cases
   unitOfMeasure: varchar("unit_of_measure", { length: 50 }),
   supplier: varchar("supplier", { length: 255 }),
-  reorderFlag: boolean("reorder_flag").default(false),
+  supplierContact: varchar("supplier_contact", { length: 255 }),
+  priceDescription: varchar("price_description", { length: 255 }),
+  // text: "R110 for 10kg", "USD 0.66"
+  moq: varchar("moq", { length: 100 }),
+  // "10kg", "1000", "10000"
+  leadTime: varchar("lead_time", { length: 100 }),
+  // "3 months", "2 weeks", "8 weeks"
+  reorderPoint: integer("reorder_point"),
+  isActive: boolean("is_active").default(true).notNull(),
+  notes: text("notes"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
 });
-var productRawMaterials = pgTable("product_raw_materials", {
+var supplyTransactions = pgTable("supply_transactions", {
   id: serial("id").primaryKey(),
   clientId: integer("client_id").references(() => clients.id).notNull(),
-  productId: integer("product_id").references(() => products.id).notNull(),
-  rawMaterialId: integer("raw_material_id").references(() => rawMaterials.id).notNull(),
-  quantityPerBatch: integer("quantity_per_batch"),
+  supplyId: integer("supply_id").references(() => supplies.id).notNull(),
+  transactionType: varchar("transaction_type", { length: 30 }).notNull(),
+  // RECEIVED, SENT_TO_MANUFACTURER, ADJUSTMENT, WRITE_OFF
+  quantity: integer("quantity").notNull(),
+  // positive for in, negative for out
+  transactionDate: date("transaction_date").notNull(),
+  relatedPoId: integer("related_po_id").references(() => purchaseOrders.id),
+  manufacturerName: varchar("manufacturer_name", { length: 255 }),
+  reference: varchar("reference", { length: 255 }),
+  notes: text("notes"),
+  createdBy: integer("created_by").references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+});
+var supplyProductMappings = pgTable("supply_product_mappings", {
+  id: serial("id").primaryKey(),
+  clientId: integer("client_id").references(() => clients.id).notNull(),
+  supplyId: integer("supply_id").references(() => supplies.id).notNull(),
+  skuCode: varchar("sku_code", { length: 50 }).notNull(),
+  quantityPerUnit: integer("quantity_per_unit").default(1).notNull(),
+  // how many of this supply per unit of finished product
   notes: text("notes")
 });
 var pnpProductMappings = pgTable("pnp_product_mappings", {
@@ -3072,6 +3102,514 @@ function registerOpeningBalanceRoutes(router2) {
   return router2;
 }
 
+// server/supplies.ts
+import multer4 from "multer";
+import * as XLSX4 from "xlsx";
+import { eq as eq7, and as and6, desc as desc4, sum as sum3, sql as sql6 } from "drizzle-orm";
+var upload4 = multer4({ storage: multer4.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+function parseLeadingNumber(val) {
+  if (val == null) return 0;
+  if (typeof val === "number") return val;
+  const s = String(val).trim();
+  if (!s) return 0;
+  const match = s.match(/^[\d.]+/);
+  if (!match) return 0;
+  const n = parseFloat(match[0]);
+  return isNaN(n) ? 0 : n;
+}
+async function getCurrentStock(clientId, supplyId) {
+  const row = await db.select({ total: sum3(supplyTransactions.quantity).mapWith(Number) }).from(supplyTransactions).where(
+    and6(
+      eq7(supplyTransactions.clientId, clientId),
+      eq7(supplyTransactions.supplyId, supplyId)
+    )
+  );
+  return row[0]?.total ?? 0;
+}
+var RAW_MATERIALS_SKIP = [
+  "RAW MATERIALS",
+  "ITEM:",
+  "ITEM",
+  "We supply",
+  "Bulk tablets/powder",
+  "Bulk tablets",
+  "No longer ordered"
+];
+var PACKAGING_SKIP = [
+  "PACKAGING:",
+  "PACKAGING",
+  "ITEM:",
+  "ITEM",
+  "Ordered by us"
+];
+function parseRawMaterialsTab(sheet) {
+  const rows = XLSX4.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+  const parsed = [];
+  let currentSubcategory = null;
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row || !Array.isArray(row)) continue;
+    const colA = String(row[0] ?? "").trim();
+    if (colA.toLowerCase().startsWith("we supply")) {
+      currentSubcategory = "We supply";
+      continue;
+    }
+    if (colA.toLowerCase().startsWith("bulk tablets") || colA.toLowerCase().startsWith("bulk tablets/powder")) {
+      currentSubcategory = "Bulk tablets";
+      continue;
+    }
+    if (colA.toLowerCase().startsWith("no longer ordered")) {
+      currentSubcategory = "No longer ordered";
+      continue;
+    }
+    if (!colA || RAW_MATERIALS_SKIP.some((h) => colA.toUpperCase().startsWith(h.toUpperCase()))) {
+      continue;
+    }
+    const name = colA;
+    const totalStock = parseLeadingNumber(row[3]);
+    const reorderPoint = row[4] != null && String(row[4]).trim() !== "" ? Math.round(parseLeadingNumber(row[4])) : null;
+    const supplier = row[11] ? String(row[11]).trim() || null : null;
+    const priceDescription = row[12] ? String(row[12]).trim() || null : null;
+    const moq = row[13] ? String(row[13]).trim() || null : null;
+    const leadTime = row[14] ? String(row[14]).trim() || null : null;
+    parsed.push({
+      name,
+      category: "RAW_MATERIAL",
+      subcategory: currentSubcategory,
+      totalStock,
+      reorderPoint,
+      supplier,
+      priceDescription,
+      moq,
+      leadTime,
+      matched: false,
+      matchedSupplyId: null
+    });
+  }
+  return parsed;
+}
+function parsePackagingTab(sheet) {
+  const rows = XLSX4.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+  const parsed = [];
+  let currentSubcategory = null;
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row || !Array.isArray(row)) continue;
+    const colA = String(row[0] ?? "").trim();
+    const colB = String(row[1] ?? "").trim();
+    if (colA) {
+      if (PACKAGING_SKIP.some((h) => colA.toUpperCase().startsWith(h.toUpperCase()))) {
+        continue;
+      }
+      currentSubcategory = colA;
+    }
+    if (!colB || PACKAGING_SKIP.some((h) => colB.toUpperCase().startsWith(h.toUpperCase()))) {
+      continue;
+    }
+    const name = colB;
+    const totalStock = parseLeadingNumber(row[2]);
+    const reorderPoint = row[3] != null && String(row[3]).trim() !== "" ? Math.round(parseLeadingNumber(row[3])) : null;
+    const supplier = row[13] ? String(row[13]).trim() || null : null;
+    const priceDescription = row[14] ? String(row[14]).trim() || null : null;
+    const moq = row[15] ? String(row[15]).trim() || null : null;
+    const leadTime = row[16] ? String(row[16]).trim() || null : null;
+    parsed.push({
+      name,
+      category: "PACKAGING",
+      subcategory: currentSubcategory,
+      totalStock,
+      reorderPoint,
+      supplier,
+      priceDescription,
+      moq,
+      leadTime,
+      matched: false,
+      matchedSupplyId: null
+    });
+  }
+  return parsed;
+}
+function registerSupplyRoutes(router2) {
+  router2.get("/api/supplies", isAuthenticated, async (req, res) => {
+    try {
+      const clientId = getClientId(req);
+      const rows = await db.select({
+        id: supplies.id,
+        clientId: supplies.clientId,
+        name: supplies.name,
+        category: supplies.category,
+        subcategory: supplies.subcategory,
+        unitOfMeasure: supplies.unitOfMeasure,
+        supplier: supplies.supplier,
+        supplierContact: supplies.supplierContact,
+        priceDescription: supplies.priceDescription,
+        moq: supplies.moq,
+        leadTime: supplies.leadTime,
+        reorderPoint: supplies.reorderPoint,
+        isActive: supplies.isActive,
+        notes: supplies.notes,
+        createdAt: supplies.createdAt,
+        currentStock: sql6`COALESCE(SUM(${supplyTransactions.quantity}), 0)`.mapWith(Number)
+      }).from(supplies).leftJoin(
+        supplyTransactions,
+        and6(
+          eq7(supplyTransactions.supplyId, supplies.id),
+          eq7(supplyTransactions.clientId, supplies.clientId)
+        )
+      ).where(eq7(supplies.clientId, clientId)).groupBy(supplies.id).orderBy(supplies.name);
+      res.json(rows);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to fetch supplies", error: err.message });
+    }
+  });
+  router2.get("/api/supplies/:id", isAuthenticated, async (req, res) => {
+    try {
+      const clientId = getClientId(req);
+      const supplyId = parseInt(req.params.id, 10);
+      if (isNaN(supplyId)) {
+        return res.status(400).json({ message: "Invalid supply ID" });
+      }
+      const [supply] = await db.select().from(supplies).where(and6(eq7(supplies.id, supplyId), eq7(supplies.clientId, clientId)));
+      if (!supply) {
+        return res.status(404).json({ message: "Supply not found" });
+      }
+      const currentStock = await getCurrentStock(clientId, supplyId);
+      const transactions = await db.select().from(supplyTransactions).where(
+        and6(
+          eq7(supplyTransactions.clientId, clientId),
+          eq7(supplyTransactions.supplyId, supplyId)
+        )
+      ).orderBy(desc4(supplyTransactions.createdAt)).limit(50);
+      res.json({ ...supply, currentStock, transactions });
+    } catch (err) {
+      res.status(500).json({ message: "Failed to fetch supply detail", error: err.message });
+    }
+  });
+  router2.post("/api/supplies", isAuthenticated, async (req, res) => {
+    try {
+      const clientId = getClientId(req);
+      const { name, category, subcategory, unitOfMeasure, supplier, supplierContact, priceDescription, moq, leadTime, reorderPoint, notes } = req.body;
+      if (!name || !category) {
+        return res.status(400).json({ message: "name and category are required" });
+      }
+      const [created] = await db.insert(supplies).values({
+        clientId,
+        name,
+        category,
+        subcategory: subcategory || null,
+        unitOfMeasure: unitOfMeasure || null,
+        supplier: supplier || null,
+        supplierContact: supplierContact || null,
+        priceDescription: priceDescription || null,
+        moq: moq || null,
+        leadTime: leadTime || null,
+        reorderPoint: reorderPoint != null ? Number(reorderPoint) : null,
+        notes: notes || null
+      }).returning();
+      logAudit(req, "SUPPLY_CREATED", {
+        resourceType: "Supply",
+        resourceId: String(created.id),
+        detail: `Created supply: ${name} (${category})`,
+        afterValue: created
+      });
+      res.status(201).json(created);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to create supply", error: err.message });
+    }
+  });
+  router2.patch("/api/supplies/:id", isAuthenticated, async (req, res) => {
+    try {
+      const clientId = getClientId(req);
+      const supplyId = parseInt(req.params.id, 10);
+      if (isNaN(supplyId)) {
+        return res.status(400).json({ message: "Invalid supply ID" });
+      }
+      const [existing] = await db.select().from(supplies).where(and6(eq7(supplies.id, supplyId), eq7(supplies.clientId, clientId)));
+      if (!existing) {
+        return res.status(404).json({ message: "Supply not found" });
+      }
+      const { name, category, subcategory, unitOfMeasure, supplier, supplierContact, priceDescription, moq, leadTime, reorderPoint, isActive, notes } = req.body;
+      const updates = {};
+      if (name !== void 0) updates.name = name;
+      if (category !== void 0) updates.category = category;
+      if (subcategory !== void 0) updates.subcategory = subcategory || null;
+      if (unitOfMeasure !== void 0) updates.unitOfMeasure = unitOfMeasure || null;
+      if (supplier !== void 0) updates.supplier = supplier || null;
+      if (supplierContact !== void 0) updates.supplierContact = supplierContact || null;
+      if (priceDescription !== void 0) updates.priceDescription = priceDescription || null;
+      if (moq !== void 0) updates.moq = moq || null;
+      if (leadTime !== void 0) updates.leadTime = leadTime || null;
+      if (reorderPoint !== void 0) updates.reorderPoint = reorderPoint != null ? Number(reorderPoint) : null;
+      if (isActive !== void 0) updates.isActive = isActive;
+      if (notes !== void 0) updates.notes = notes || null;
+      const [updated] = await db.update(supplies).set(updates).where(and6(eq7(supplies.id, supplyId), eq7(supplies.clientId, clientId))).returning();
+      logAudit(req, "SUPPLY_UPDATED", {
+        resourceType: "Supply",
+        resourceId: String(supplyId),
+        detail: `Updated supply: ${updated.name}`,
+        beforeValue: existing,
+        afterValue: updated
+      });
+      res.json(updated);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to update supply", error: err.message });
+    }
+  });
+  router2.post("/api/supplies/:id/receive", isAuthenticated, async (req, res) => {
+    try {
+      const clientId = getClientId(req);
+      const supplyId = parseInt(req.params.id, 10);
+      if (isNaN(supplyId)) {
+        return res.status(400).json({ message: "Invalid supply ID" });
+      }
+      const { quantity, reference, notes, transactionDate } = req.body;
+      if (!quantity || quantity <= 0) {
+        return res.status(400).json({ message: "quantity must be a positive number" });
+      }
+      const [supply] = await db.select().from(supplies).where(and6(eq7(supplies.id, supplyId), eq7(supplies.clientId, clientId)));
+      if (!supply) {
+        return res.status(404).json({ message: "Supply not found" });
+      }
+      const user = req.user;
+      const txnDate = transactionDate || (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+      const [txn] = await db.insert(supplyTransactions).values({
+        clientId,
+        supplyId,
+        transactionType: "RECEIVED",
+        quantity: Math.abs(Math.round(quantity)),
+        transactionDate: txnDate,
+        reference: reference || null,
+        notes: notes || null,
+        createdBy: user?.id ?? null
+      }).returning();
+      logAudit(req, "SUPPLY_RECEIVED", {
+        resourceType: "SupplyTransaction",
+        resourceId: String(txn.id),
+        detail: `Received ${quantity} of ${supply.name}`,
+        afterValue: txn
+      });
+      res.status(201).json(txn);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to record supply receipt", error: err.message });
+    }
+  });
+  router2.post("/api/supplies/:id/send", isAuthenticated, async (req, res) => {
+    try {
+      const clientId = getClientId(req);
+      const supplyId = parseInt(req.params.id, 10);
+      if (isNaN(supplyId)) {
+        return res.status(400).json({ message: "Invalid supply ID" });
+      }
+      const { quantity, manufacturerName, relatedPoId, reference, notes } = req.body;
+      if (!quantity || quantity <= 0) {
+        return res.status(400).json({ message: "quantity must be a positive number" });
+      }
+      if (!manufacturerName) {
+        return res.status(400).json({ message: "manufacturerName is required" });
+      }
+      const [supply] = await db.select().from(supplies).where(and6(eq7(supplies.id, supplyId), eq7(supplies.clientId, clientId)));
+      if (!supply) {
+        return res.status(404).json({ message: "Supply not found" });
+      }
+      const user = req.user;
+      const txnDate = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+      const [txn] = await db.insert(supplyTransactions).values({
+        clientId,
+        supplyId,
+        transactionType: "SENT_TO_MANUFACTURER",
+        quantity: -Math.abs(Math.round(quantity)),
+        transactionDate: txnDate,
+        manufacturerName,
+        relatedPoId: relatedPoId || null,
+        reference: reference || null,
+        notes: notes || null,
+        createdBy: user?.id ?? null
+      }).returning();
+      logAudit(req, "SUPPLY_SENT", {
+        resourceType: "SupplyTransaction",
+        resourceId: String(txn.id),
+        detail: `Sent ${quantity} of ${supply.name} to ${manufacturerName}`,
+        afterValue: txn
+      });
+      res.status(201).json(txn);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to record supply dispatch", error: err.message });
+    }
+  });
+  router2.post("/api/supplies/:id/adjust", isAuthenticated, async (req, res) => {
+    try {
+      const clientId = getClientId(req);
+      const supplyId = parseInt(req.params.id, 10);
+      if (isNaN(supplyId)) {
+        return res.status(400).json({ message: "Invalid supply ID" });
+      }
+      const { newQuantity, reason, notes } = req.body;
+      if (newQuantity == null || newQuantity < 0) {
+        return res.status(400).json({ message: "newQuantity must be a non-negative number" });
+      }
+      if (!reason) {
+        return res.status(400).json({ message: "reason is required" });
+      }
+      if (!notes) {
+        return res.status(400).json({ message: "notes are required for adjustments" });
+      }
+      const [supply] = await db.select().from(supplies).where(and6(eq7(supplies.id, supplyId), eq7(supplies.clientId, clientId)));
+      if (!supply) {
+        return res.status(404).json({ message: "Supply not found" });
+      }
+      const currentStock = await getCurrentStock(clientId, supplyId);
+      const delta = Math.round(newQuantity) - currentStock;
+      if (delta === 0) {
+        return res.json({ message: "No adjustment needed \u2014 stock already at that level", noChange: true });
+      }
+      const user = req.user;
+      const txnDate = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+      const [txn] = await db.insert(supplyTransactions).values({
+        clientId,
+        supplyId,
+        transactionType: "ADJUSTMENT",
+        quantity: delta,
+        transactionDate: txnDate,
+        reference: `Adjustment: ${currentStock} \u2192 ${Math.round(newQuantity)}`,
+        notes: `[${reason}] ${notes}`,
+        createdBy: user?.id ?? null
+      }).returning();
+      logAudit(req, "SUPPLY_ADJUSTMENT", {
+        resourceType: "SupplyTransaction",
+        resourceId: String(txn.id),
+        detail: `${reason}: ${supply.name} adjusted from ${currentStock} to ${Math.round(newQuantity)} (${delta > 0 ? "+" : ""}${delta}). ${notes}`,
+        beforeValue: { currentStock },
+        afterValue: { newQuantity: Math.round(newQuantity), delta }
+      });
+      res.json(txn);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to create supply adjustment", error: err.message });
+    }
+  });
+  router2.post(
+    "/api/supplies/import/preview",
+    isAuthenticated,
+    upload4.single("file"),
+    async (req, res) => {
+      try {
+        if (!req.file) {
+          return res.status(400).json({ message: "No file uploaded" });
+        }
+        const clientId = getClientId(req);
+        const workbook = XLSX4.read(req.file.buffer, { type: "buffer" });
+        const existingSupplies = await db.select().from(supplies).where(eq7(supplies.clientId, clientId));
+        const nameMap = new Map(
+          existingSupplies.map((s) => [s.name.toLowerCase().trim(), s])
+        );
+        let parsed = [];
+        const rawSheet = workbook.Sheets["RAW MATERIALS"] ?? workbook.Sheets["Raw Materials"];
+        if (rawSheet) {
+          parsed = parsed.concat(parseRawMaterialsTab(rawSheet));
+        }
+        const packagingSheet = workbook.Sheets["PACKAGING"] ?? workbook.Sheets["Packaging"];
+        if (packagingSheet) {
+          parsed = parsed.concat(parsePackagingTab(packagingSheet));
+        }
+        if (parsed.length === 0) {
+          return res.status(400).json({
+            message: "No supply items found. Ensure the file has RAW MATERIALS and/or PACKAGING tabs."
+          });
+        }
+        for (const row of parsed) {
+          const existing = nameMap.get(row.name.toLowerCase().trim());
+          if (existing) {
+            row.matched = true;
+            row.matchedSupplyId = existing.id;
+          }
+        }
+        res.json({
+          totalRows: parsed.length,
+          matched: parsed.filter((r) => r.matched).length,
+          unmatched: parsed.filter((r) => !r.matched).length,
+          rows: parsed
+        });
+      } catch (err) {
+        res.status(500).json({ message: "Failed to parse import file", error: err.message });
+      }
+    }
+  );
+  router2.post("/api/supplies/import/commit", isAuthenticated, async (req, res) => {
+    try {
+      const clientId = getClientId(req);
+      const user = req.user;
+      const { items } = req.body;
+      if (!items || !Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ message: "items array is required" });
+      }
+      const txnDate = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+      const created = [];
+      const updated = [];
+      for (const item of items) {
+        if (item.matched && item.matchedSupplyId) {
+          const [upd] = await db.update(supplies).set({
+            subcategory: item.subcategory || void 0,
+            supplier: item.supplier || void 0,
+            priceDescription: item.priceDescription || void 0,
+            moq: item.moq || void 0,
+            leadTime: item.leadTime || void 0,
+            reorderPoint: item.reorderPoint ?? void 0
+          }).where(and6(eq7(supplies.id, item.matchedSupplyId), eq7(supplies.clientId, clientId))).returning();
+          if (item.totalStock > 0) {
+            await db.insert(supplyTransactions).values({
+              clientId,
+              supplyId: item.matchedSupplyId,
+              transactionType: "ADJUSTMENT",
+              quantity: Math.round(item.totalStock),
+              transactionDate: txnDate,
+              reference: "Import: opening balance",
+              notes: "Imported from Animal Farm spreadsheet",
+              createdBy: user?.id ?? null
+            });
+          }
+          updated.push(upd);
+        } else {
+          const [newSupply] = await db.insert(supplies).values({
+            clientId,
+            name: item.name,
+            category: item.category,
+            subcategory: item.subcategory || null,
+            supplier: item.supplier || null,
+            priceDescription: item.priceDescription || null,
+            moq: item.moq || null,
+            leadTime: item.leadTime || null,
+            reorderPoint: item.reorderPoint ?? null
+          }).returning();
+          if (item.totalStock > 0) {
+            await db.insert(supplyTransactions).values({
+              clientId,
+              supplyId: newSupply.id,
+              transactionType: "RECEIVED",
+              quantity: Math.round(item.totalStock),
+              transactionDate: txnDate,
+              reference: "Import: opening balance",
+              notes: "Imported from Animal Farm spreadsheet",
+              createdBy: user?.id ?? null
+            });
+          }
+          created.push(newSupply);
+        }
+      }
+      logAudit(req, "SUPPLIES_IMPORTED", {
+        resourceType: "Supply",
+        detail: `Imported ${created.length} new supplies, updated ${updated.length} existing`,
+        afterValue: { created: created.length, updated: updated.length }
+      });
+      res.json({
+        created: created.length,
+        updated: updated.length,
+        total: created.length + updated.length
+      });
+    } catch (err) {
+      res.status(500).json({ message: "Failed to commit supply import", error: err.message });
+    }
+  });
+}
+
 // server/api.ts
 var app = express();
 var PgSession = connectPgSimple(session);
@@ -3120,6 +3658,7 @@ registerXeroRoutes(router);
 registerXeroAuthRoutes(router);
 registerPnpRoutes(router);
 registerOpeningBalanceRoutes(router);
+registerSupplyRoutes(router);
 app.use(router);
 app.use((err, _req, res, _next) => {
   console.error("Unhandled error:", err);

@@ -269,24 +269,46 @@ export const systemSettings = pgTable("system_settings", {
   uniqueIndex("system_settings_client_key_idx").on(table.clientId, table.key),
 ]);
 
-// ─── Client-Scoped: Raw Materials ───────────────────────────
-export const rawMaterials = pgTable("raw_materials", {
+// ─── Client-Scoped: Supplies (Raw Materials + Packaging) ────
+export const supplies = pgTable("supplies", {
   id: serial("id").primaryKey(),
   clientId: integer("client_id").references(() => clients.id).notNull(),
-  name: varchar("name", { length: 255 }).notNull(),
-  currentStock: integer("current_stock").default(0),
+  name: varchar("name", { length: 500 }).notNull(),
+  category: varchar("category", { length: 20 }).notNull(), // RAW_MATERIAL, PACKAGING
+  subcategory: varchar("subcategory", { length: 50 }), // We supply, Bulk tablets, Labels, Containers, Cases
   unitOfMeasure: varchar("unit_of_measure", { length: 50 }),
   supplier: varchar("supplier", { length: 255 }),
-  reorderFlag: boolean("reorder_flag").default(false),
+  supplierContact: varchar("supplier_contact", { length: 255 }),
+  priceDescription: varchar("price_description", { length: 255 }), // text: "R110 for 10kg", "USD 0.66"
+  moq: varchar("moq", { length: 100 }), // "10kg", "1000", "10000"
+  leadTime: varchar("lead_time", { length: 100 }), // "3 months", "2 weeks", "8 weeks"
+  reorderPoint: integer("reorder_point"),
+  isActive: boolean("is_active").default(true).notNull(),
+  notes: text("notes"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
-export const productRawMaterials = pgTable("product_raw_materials", {
+export const supplyTransactions = pgTable("supply_transactions", {
   id: serial("id").primaryKey(),
   clientId: integer("client_id").references(() => clients.id).notNull(),
-  productId: integer("product_id").references(() => products.id).notNull(),
-  rawMaterialId: integer("raw_material_id").references(() => rawMaterials.id).notNull(),
-  quantityPerBatch: integer("quantity_per_batch"),
+  supplyId: integer("supply_id").references(() => supplies.id).notNull(),
+  transactionType: varchar("transaction_type", { length: 30 }).notNull(), // RECEIVED, SENT_TO_MANUFACTURER, ADJUSTMENT, WRITE_OFF
+  quantity: integer("quantity").notNull(), // positive for in, negative for out
+  transactionDate: date("transaction_date").notNull(),
+  relatedPoId: integer("related_po_id").references(() => purchaseOrders.id),
+  manufacturerName: varchar("manufacturer_name", { length: 255 }),
+  reference: varchar("reference", { length: 255 }),
+  notes: text("notes"),
+  createdBy: integer("created_by").references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const supplyProductMappings = pgTable("supply_product_mappings", {
+  id: serial("id").primaryKey(),
+  clientId: integer("client_id").references(() => clients.id).notNull(),
+  supplyId: integer("supply_id").references(() => supplies.id).notNull(),
+  skuCode: varchar("sku_code", { length: 50 }).notNull(),
+  quantityPerUnit: integer("quantity_per_unit").default(1).notNull(), // how many of this supply per unit of finished product
   notes: text("notes"),
 });
 
