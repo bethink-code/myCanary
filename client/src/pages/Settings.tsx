@@ -1,9 +1,16 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 import { apiRequest } from "../lib/queryClient";
 
+function getInitialTab(): string {
+  const params = new URLSearchParams(window.location.search);
+  if (params.has("xero") || params.get("tab") === "system") return "system";
+  return params.get("tab") ?? "products";
+}
+
 export default function Settings() {
-  const [activeTab, setActiveTab] = useState("products");
+  const [activeTab, setActiveTab] = useState(getInitialTab);
 
   const tabs = [
     { id: "products", label: "Products & SKUs" },
