@@ -10,6 +10,7 @@ import { registerXeroRoutes } from "./xeroImport";
 import { registerPnpRoutes } from "./pnpProcess";
 import { registerXeroAuthRoutes } from "./xeroAuth";
 import { registerOpeningBalanceRoutes } from "./openingBalanceImport";
+import { clientContext } from "./clientContext";
 
 const app = express();
 const PgSession = connectPgSimple(session);
@@ -57,6 +58,8 @@ app.get(
 app.post("/auth/logout", (req, res) => {
   req.logout(() => res.json({ ok: true }));
 });
+
+app.use(clientContext);
 
 const router = express.Router();
 registerRoutes(router);

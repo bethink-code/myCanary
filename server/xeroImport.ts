@@ -8,6 +8,7 @@ import { eq, and, asc, desc, sql, like } from "drizzle-orm";
 import { logAudit } from "./auditLog";
 import { isAuthenticated } from "./routes";
 import { systemSettings } from "../shared/schema";
+import { getClientId } from "./clientContext";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
@@ -56,11 +57,12 @@ export function registerXeroRoutes(router: Router) {
         const rawRows = XLSX.utils.sheet_to_json<any>(sheet);
 
         // Load product lookup
-        const allProducts = await db.select().from(products).where(eq(products.isActive, true));
+        const clientId = getClientId(req);
+        const allProducts = await db.select().from(products).where(and(eq(products.clientId, clientId), eq(products.isActive, true)));
         const productMap = new Map(allProducts.map((p) => [p.skuCode, p]));
 
         // Load AP brand mappings
-        const apMappings = await db.select().from(apBrandMappings);
+        const apMappings = await db.select().from(apBrandMappings).where(eq(apBrandMappings.clientId, clientId));
         const apMap = new Map(apMappings.map((m) => [m.apProductCode, m.thhSkuCode]));
 
         const parsed: ParsedRow[] = [];
@@ -156,7 +158,7 @@ export function registerXeroRoutes(router: Router) {
         const ledgerSetting = await db
           .select()
           .from(systemSettings)
-          .where(eq(systemSettings.key, "ledger_start_date"))
+          .where(and(eq(systemSettings.clientId, clientId), eq(systemSettings.key, "ledger_start_date")))
           .limit(1);
 
         res.json({
@@ -196,6 +198,7 @@ export function registerXeroRoutes(router: Router) {
 
       const { fromDate, toDate, rows } = parsed.data;
       const userId = (req.user as any)?.id;
+      const clientId = getClientId(req);
       const reference = `Xero import ${fromDate} to ${toDate}`;
 
       // ── Guard 1: Ledger start date ──
@@ -205,7 +208,7 @@ export function registerXeroRoutes(router: Router) {
       const ledgerSetting = await db
         .select()
         .from(systemSettings)
-        .where(eq(systemSettings.key, "ledger_start_date"))
+        .where(and(eq(systemSettings.clientId, clientId), eq(systemSettings.key, "ledger_start_date")))
         .limit(1);
 
       if (ledgerSetting.length === 0) {
@@ -230,6 +233,7 @@ export function registerXeroRoutes(router: Router) {
         .from(stockTransactions)
         .where(
           and(
+            eq(stockTransactions.clientId, clientId),
             eq(stockTransactions.transactionType, "SALES_OUT"),
             eq(stockTransactions.reference, reference)
           )
@@ -263,6 +267,7 @@ export function registerXeroRoutes(router: Router) {
           .from(batches)
           .where(
             and(
+              eq(batches.clientId, clientId),
               eq(batches.skuCode, row.baseSku),
               eq(batches.stockLocation, debitLocation),
               eq(batches.isActive, true)
@@ -280,6 +285,7 @@ export function registerXeroRoutes(router: Router) {
           : reference;
 
         await db.insert(stockTransactions).values({
+          clientId,
           batchId,
           skuCode: row.baseSku,
           stockLocation: debitLocation,
@@ -309,12 +315,13 @@ export function registerXeroRoutes(router: Router) {
   });
 
   // ─── Ledger start date ────────────────────────────
-  router.get("/api/xero/import/ledger-date", isAuthenticated, async (_req, res) => {
+  router.get("/api/xero/import/ledger-date", isAuthenticated, async (req, res) => {
     try {
+      const clientId = getClientId(req);
       const ledgerSetting = await db
         .select()
         .from(systemSettings)
-        .where(eq(systemSettings.key, "ledger_start_date"))
+        .where(and(eq(systemSettings.clientId, clientId), eq(systemSettings.key, "ledger_start_date")))
         .limit(1);
 
       res.json({
@@ -327,8 +334,9 @@ export function registerXeroRoutes(router: Router) {
   });
 
   // ─── Import History ───────────────────────────────
-  router.get("/api/xero/import/history", isAuthenticated, async (_req, res) => {
+  router.get("/api/xero/import/history", isAuthenticated, async (req, res) => {
     try {
+      const clientId = getClientId(req);
       // Find all distinct Xero import references
       const imports = await db
         .select({
@@ -340,6 +348,7 @@ export function registerXeroRoutes(router: Router) {
         .from(stockTransactions)
         .where(
           and(
+            eq(stockTransactions.clientId, clientId),
             eq(stockTransactions.transactionType, "SALES_OUT"),
             like(stockTransactions.reference, "Xero import %")
           )

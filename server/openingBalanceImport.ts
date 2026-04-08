@@ -7,6 +7,7 @@ import { eq, and, sql } from "drizzle-orm";
 import { logAudit } from "./auditLog";
 import { isAuthenticated } from "./routes";
 import { systemSettings } from "../shared/schema";
+import { getClientId } from "./clientContext";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
@@ -153,7 +154,8 @@ export function registerOpeningBalanceRoutes(router: Router) {
         const parsed = parseSummarySheet(req.file.buffer);
 
         // Also check against our product master
-        const allProducts = await db.select().from(products).where(eq(products.isActive, true));
+        const clientId = getClientId(req);
+        const allProducts = await db.select().from(products).where(and(eq(products.clientId, clientId), eq(products.isActive, true)));
         const productMap = new Map(allProducts.map((p) => [p.skuCode, p]));
 
         const enriched = parsed.map((row) => {
@@ -198,6 +200,7 @@ export function registerOpeningBalanceRoutes(router: Router) {
       }
 
       const userId = (req.user as any)?.id;
+      const clientId = getClientId(req);
       const dateObj = new Date(asOfDate);
       const periodMonth = dateObj.getMonth() + 1;
       const periodYear = dateObj.getFullYear();
@@ -207,7 +210,7 @@ export function registerOpeningBalanceRoutes(router: Router) {
       const existing = await db
         .select()
         .from(stockTransactions)
-        .where(eq(stockTransactions.reference, reference))
+        .where(and(eq(stockTransactions.clientId, clientId), eq(stockTransactions.reference, reference)))
         .limit(1);
 
       if (existing.length > 0) {
@@ -225,6 +228,7 @@ export function registerOpeningBalanceRoutes(router: Router) {
         if (row.thhStock > 0) {
           // Create a synthetic batch for opening balance
           const [batch] = await db.insert(batches).values({
+            clientId,
             skuCode: row.skuCode,
             sizeVariant: row.size || "opening",
             stockLocation: "THH",
@@ -241,6 +245,7 @@ export function registerOpeningBalanceRoutes(router: Router) {
           }).returning();
 
           await db.insert(stockTransactions).values({
+            clientId,
             batchId: batch.id,
             skuCode: row.skuCode,
             stockLocation: "THH",
@@ -259,6 +264,7 @@ export function registerOpeningBalanceRoutes(router: Router) {
         // Create 8/8 stock if > 0
         if (row.eightEightStock > 0) {
           const [batch] = await db.insert(batches).values({
+            clientId,
             skuCode: row.skuCode,
             sizeVariant: row.size || "opening",
             stockLocation: "88",
@@ -275,6 +281,7 @@ export function registerOpeningBalanceRoutes(router: Router) {
           }).returning();
 
           await db.insert(stockTransactions).values({
+            clientId,
             batchId: batch.id,
             skuCode: row.skuCode,
             stockLocation: "88",
@@ -295,7 +302,7 @@ export function registerOpeningBalanceRoutes(router: Router) {
           await db
             .update(products)
             .set({ reorderPointOverride: row.reorderPoint })
-            .where(eq(products.skuCode, row.skuCode));
+            .where(and(eq(products.clientId, clientId), eq(products.skuCode, row.skuCode)));
         }
       }
 
@@ -303,16 +310,17 @@ export function registerOpeningBalanceRoutes(router: Router) {
       const existingLedgerDate = await db
         .select()
         .from(systemSettings)
-        .where(eq(systemSettings.key, "ledger_start_date"))
+        .where(and(eq(systemSettings.clientId, clientId), eq(systemSettings.key, "ledger_start_date")))
         .limit(1);
 
       if (existingLedgerDate.length > 0) {
         await db
           .update(systemSettings)
           .set({ value: asOfDate, updatedAt: new Date() })
-          .where(eq(systemSettings.key, "ledger_start_date"));
+          .where(and(eq(systemSettings.clientId, clientId), eq(systemSettings.key, "ledger_start_date")));
       } else {
         await db.insert(systemSettings).values({
+          clientId,
           key: "ledger_start_date",
           value: asOfDate,
         });
@@ -409,7 +417,8 @@ export function registerOpeningBalanceRoutes(router: Router) {
       }
 
       // Check against product master
-      const allProducts = await db.select().from(products).where(eq(products.isActive, true));
+      const clientId = getClientId(req);
+      const allProducts = await db.select().from(products).where(and(eq(products.clientId, clientId), eq(products.isActive, true)));
       const productMap = new Map(allProducts.map((p) => [p.skuCode, p]));
 
       const enriched = parsed.map((row) => {

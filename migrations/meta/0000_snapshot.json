@@ -1,5 +1,5 @@
 {
-  "id": "d9b6bf5b-efcf-46bd-971e-6d6bfd25123f",
+  "id": "7a2b6532-dde4-4bf3-ad60-d8576bb7b3b2",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -65,6 +65,12 @@
           "primaryKey": true,
           "notNull": true
         },
+        "client_id": {
+          "name": "client_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
         "ap_product_code": {
           "name": "ap_product_code",
           "type": "varchar(50)",
@@ -85,17 +91,23 @@
         }
       },
       "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "ap_brand_mappings_ap_product_code_unique": {
-          "name": "ap_brand_mappings_ap_product_code_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "ap_product_code"
-          ]
+      "foreignKeys": {
+        "ap_brand_mappings_client_id_clients_id_fk": {
+          "name": "ap_brand_mappings_client_id_clients_id_fk",
+          "tableFrom": "ap_brand_mappings",
+          "tableTo": "clients",
+          "columnsFrom": [
+            "client_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
         }
       },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -204,6 +216,12 @@
           "primaryKey": true,
           "notNull": true
         },
+        "client_id": {
+          "name": "client_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
         "sku_code": {
           "name": "sku_code",
           "type": "varchar(50)",
@@ -280,9 +298,89 @@
         }
       },
       "indexes": {},
-      "foreignKeys": {},
+      "foreignKeys": {
+        "batches_client_id_clients_id_fk": {
+          "name": "batches_client_id_clients_id_fk",
+          "tableFrom": "batches",
+          "tableTo": "clients",
+          "columnsFrom": [
+            "client_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.clients": {
+      "name": "clients",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "slug": {
+          "name": "slug",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "is_active": {
+          "name": "is_active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "setup_complete": {
+          "name": "setup_complete",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "setup_progress": {
+          "name": "setup_progress",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "clients_slug_unique": {
+          "name": "clients_slug_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "slug"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -357,6 +455,12 @@
           "primaryKey": true,
           "notNull": true
         },
+        "client_id": {
+          "name": "client_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
         "name": {
           "name": "name",
           "type": "varchar(255)",
@@ -409,7 +513,21 @@
         }
       },
       "indexes": {},
-      "foreignKeys": {},
+      "foreignKeys": {
+        "manufacturers_client_id_clients_id_fk": {
+          "name": "manufacturers_client_id_clients_id_fk",
+          "tableFrom": "manufacturers",
+          "tableTo": "clients",
+          "columnsFrom": [
+            "client_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -424,6 +542,12 @@
           "name": "id",
           "type": "serial",
           "primaryKey": true,
+          "notNull": true
+        },
+        "client_id": {
+          "name": "client_id",
+          "type": "integer",
+          "primaryKey": false,
           "notNull": true
         },
         "type": {
@@ -479,6 +603,19 @@
       },
       "indexes": {},
       "foreignKeys": {
+        "notifications_client_id_clients_id_fk": {
+          "name": "notifications_client_id_clients_id_fk",
+          "tableFrom": "notifications",
+          "tableTo": "clients",
+          "columnsFrom": [
+            "client_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
         "notifications_user_id_users_id_fk": {
           "name": "notifications_user_id_users_id_fk",
           "tableFrom": "notifications",
@@ -507,6 +644,12 @@
           "name": "id",
           "type": "serial",
           "primaryKey": true,
+          "notNull": true
+        },
+        "client_id": {
+          "name": "client_id",
+          "type": "integer",
+          "primaryKey": false,
           "notNull": true
         },
         "order_id": {
@@ -549,6 +692,19 @@
       },
       "indexes": {},
       "foreignKeys": {
+        "order_lines_client_id_clients_id_fk": {
+          "name": "order_lines_client_id_clients_id_fk",
+          "tableFrom": "order_lines",
+          "tableTo": "clients",
+          "columnsFrom": [
+            "client_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
         "order_lines_order_id_orders_id_fk": {
           "name": "order_lines_order_id_orders_id_fk",
           "tableFrom": "order_lines",
@@ -577,6 +733,12 @@
           "name": "id",
           "type": "serial",
           "primaryKey": true,
+          "notNull": true
+        },
+        "client_id": {
+          "name": "client_id",
+          "type": "integer",
+          "primaryKey": false,
           "notNull": true
         },
         "order_date": {
@@ -704,6 +866,19 @@
       },
       "indexes": {},
       "foreignKeys": {
+        "orders_client_id_clients_id_fk": {
+          "name": "orders_client_id_clients_id_fk",
+          "tableFrom": "orders",
+          "tableTo": "clients",
+          "columnsFrom": [
+            "client_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
         "orders_created_by_users_id_fk": {
           "name": "orders_created_by_users_id_fk",
           "tableFrom": "orders",
@@ -745,6 +920,12 @@
           "name": "id",
           "type": "serial",
           "primaryKey": true,
+          "notNull": true
+        },
+        "client_id": {
+          "name": "client_id",
+          "type": "integer",
+          "primaryKey": false,
           "notNull": true
         },
         "pnp_order_id": {
@@ -799,6 +980,19 @@
       },
       "indexes": {},
       "foreignKeys": {
+        "pnp_order_lines_client_id_clients_id_fk": {
+          "name": "pnp_order_lines_client_id_clients_id_fk",
+          "tableFrom": "pnp_order_lines",
+          "tableTo": "clients",
+          "columnsFrom": [
+            "client_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
         "pnp_order_lines_pnp_order_id_pnp_orders_id_fk": {
           "name": "pnp_order_lines_pnp_order_id_pnp_orders_id_fk",
           "tableFrom": "pnp_order_lines",
@@ -827,6 +1021,12 @@
           "name": "id",
           "type": "serial",
           "primaryKey": true,
+          "notNull": true
+        },
+        "client_id": {
+          "name": "client_id",
+          "type": "integer",
+          "primaryKey": false,
           "notNull": true
         },
         "week_ending_date": {
@@ -883,6 +1083,19 @@
       },
       "indexes": {},
       "foreignKeys": {
+        "pnp_orders_client_id_clients_id_fk": {
+          "name": "pnp_orders_client_id_clients_id_fk",
+          "tableFrom": "pnp_orders",
+          "tableTo": "clients",
+          "columnsFrom": [
+            "client_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
         "pnp_orders_created_by_users_id_fk": {
           "name": "pnp_orders_created_by_users_id_fk",
           "tableFrom": "pnp_orders",
@@ -913,6 +1126,12 @@
           "primaryKey": true,
           "notNull": true
         },
+        "client_id": {
+          "name": "client_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
         "pnp_product_name": {
           "name": "pnp_product_name",
           "type": "varchar(255)",
@@ -927,7 +1146,21 @@
         }
       },
       "indexes": {},
-      "foreignKeys": {},
+      "foreignKeys": {
+        "pnp_product_mappings_client_id_clients_id_fk": {
+          "name": "pnp_product_mappings_client_id_clients_id_fk",
+          "tableFrom": "pnp_product_mappings",
+          "tableTo": "clients",
+          "columnsFrom": [
+            "client_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -942,6 +1175,12 @@
           "name": "id",
           "type": "serial",
           "primaryKey": true,
+          "notNull": true
+        },
+        "client_id": {
+          "name": "client_id",
+          "type": "integer",
+          "primaryKey": false,
           "notNull": true
         },
         "product_id": {
@@ -971,6 +1210,19 @@
       },
       "indexes": {},
       "foreignKeys": {
+        "product_raw_materials_client_id_clients_id_fk": {
+          "name": "product_raw_materials_client_id_clients_id_fk",
+          "tableFrom": "product_raw_materials",
+          "tableTo": "clients",
+          "columnsFrom": [
+            "client_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
         "product_raw_materials_product_id_products_id_fk": {
           "name": "product_raw_materials_product_id_products_id_fk",
           "tableFrom": "product_raw_materials",
@@ -1012,6 +1264,12 @@
           "name": "id",
           "type": "serial",
           "primaryKey": true,
+          "notNull": true
+        },
+        "client_id": {
+          "name": "client_id",
+          "type": "integer",
+          "primaryKey": false,
           "notNull": true
         },
         "sku_code": {
@@ -1108,8 +1366,43 @@
           "default": "now()"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "products_client_sku_idx": {
+          "name": "products_client_sku_idx",
+          "columns": [
+            {
+              "expression": "client_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "sku_code",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
+        "products_client_id_clients_id_fk": {
+          "name": "products_client_id_clients_id_fk",
+          "tableFrom": "products",
+          "tableTo": "clients",
+          "columnsFrom": [
+            "client_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
         "products_manufacturer_id_manufacturers_id_fk": {
           "name": "products_manufacturer_id_manufacturers_id_fk",
           "tableFrom": "products",
@@ -1125,15 +1418,7 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "products_sku_code_unique": {
-          "name": "products_sku_code_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "sku_code"
-          ]
-        }
-      },
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -1146,6 +1431,12 @@
           "name": "id",
           "type": "serial",
           "primaryKey": true,
+          "notNull": true
+        },
+        "client_id": {
+          "name": "client_id",
+          "type": "integer",
+          "primaryKey": false,
           "notNull": true
         },
         "po_id": {
@@ -1181,6 +1472,19 @@
       },
       "indexes": {},
       "foreignKeys": {
+        "purchase_order_lines_client_id_clients_id_fk": {
+          "name": "purchase_order_lines_client_id_clients_id_fk",
+          "tableFrom": "purchase_order_lines",
+          "tableTo": "clients",
+          "columnsFrom": [
+            "client_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
         "purchase_order_lines_po_id_purchase_orders_id_fk": {
           "name": "purchase_order_lines_po_id_purchase_orders_id_fk",
           "tableFrom": "purchase_order_lines",
@@ -1209,6 +1513,12 @@
           "name": "id",
           "type": "serial",
           "primaryKey": true,
+          "notNull": true
+        },
+        "client_id": {
+          "name": "client_id",
+          "type": "integer",
+          "primaryKey": false,
           "notNull": true
         },
         "manufacturer_id": {
@@ -1276,6 +1586,19 @@
       },
       "indexes": {},
       "foreignKeys": {
+        "purchase_orders_client_id_clients_id_fk": {
+          "name": "purchase_orders_client_id_clients_id_fk",
+          "tableFrom": "purchase_orders",
+          "tableTo": "clients",
+          "columnsFrom": [
+            "client_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
         "purchase_orders_manufacturer_id_manufacturers_id_fk": {
           "name": "purchase_orders_manufacturer_id_manufacturers_id_fk",
           "tableFrom": "purchase_orders",
@@ -1319,6 +1642,12 @@
           "primaryKey": true,
           "notNull": true
         },
+        "client_id": {
+          "name": "client_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
         "name": {
           "name": "name",
           "type": "varchar(255)",
@@ -1360,7 +1689,21 @@
         }
       },
       "indexes": {},
-      "foreignKeys": {},
+      "foreignKeys": {
+        "raw_materials_client_id_clients_id_fk": {
+          "name": "raw_materials_client_id_clients_id_fk",
+          "tableFrom": "raw_materials",
+          "tableTo": "clients",
+          "columnsFrom": [
+            "client_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -1406,6 +1749,12 @@
           "name": "id",
           "type": "serial",
           "primaryKey": true,
+          "notNull": true
+        },
+        "client_id": {
+          "name": "client_id",
+          "type": "integer",
+          "primaryKey": false,
           "notNull": true
         },
         "batch_id": {
@@ -1496,6 +1845,19 @@
       },
       "indexes": {},
       "foreignKeys": {
+        "stock_transactions_client_id_clients_id_fk": {
+          "name": "stock_transactions_client_id_clients_id_fk",
+          "tableFrom": "stock_transactions",
+          "tableTo": "clients",
+          "columnsFrom": [
+            "client_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
         "stock_transactions_batch_id_batches_id_fk": {
           "name": "stock_transactions_batch_id_batches_id_fk",
           "tableFrom": "stock_transactions",
@@ -1552,6 +1914,12 @@
           "primaryKey": true,
           "notNull": true
         },
+        "client_id": {
+          "name": "client_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
         "key": {
           "name": "key",
           "type": "varchar(100)",
@@ -1572,18 +1940,118 @@
           "default": "now()"
         }
       },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "system_settings_key_unique": {
-          "name": "system_settings_key_unique",
-          "nullsNotDistinct": false,
+      "indexes": {
+        "system_settings_client_key_idx": {
+          "name": "system_settings_client_key_idx",
           "columns": [
-            "key"
-          ]
+            {
+              "expression": "client_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
+      "foreignKeys": {
+        "system_settings_client_id_clients_id_fk": {
+          "name": "system_settings_client_id_clients_id_fk",
+          "tableFrom": "system_settings",
+          "tableTo": "clients",
+          "columnsFrom": [
+            "client_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.user_clients": {
+      "name": "user_clients",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "client_id": {
+          "name": "client_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "role": {
+          "name": "role",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'member'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "user_clients_user_id_users_id_fk": {
+          "name": "user_clients_user_id_users_id_fk",
+          "tableFrom": "user_clients",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "user_clients_client_id_clients_id_fk": {
+          "name": "user_clients_client_id_clients_id_fk",
+          "tableFrom": "user_clients",
+          "tableTo": "clients",
+          "columnsFrom": [
+            "client_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false

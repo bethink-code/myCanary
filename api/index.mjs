@@ -27,6 +27,7 @@ __export(schema_exports, {
   apBrandMappings: () => apBrandMappings,
   auditLogs: () => auditLogs,
   batches: () => batches,
+  clients: () => clients,
   invitedUsers: () => invitedUsers,
   manufacturers: () => manufacturers,
   notifications: () => notifications,
@@ -43,6 +44,7 @@ __export(schema_exports, {
   sessions: () => sessions,
   stockTransactions: () => stockTransactions,
   systemSettings: () => systemSettings,
+  userClients: () => userClients,
   users: () => users
 });
 import {
@@ -54,8 +56,20 @@ import {
   timestamp,
   varchar,
   date,
-  json
+  json,
+  uniqueIndex
 } from "drizzle-orm/pg-core";
+var clients = pgTable("clients", {
+  id: serial("id").primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  slug: varchar("slug", { length: 50 }).notNull().unique(),
+  // subdomain: slug.mycanary.biz
+  isActive: boolean("is_active").default(true).notNull(),
+  setupComplete: boolean("setup_complete").default(false).notNull(),
+  setupProgress: json("setup_progress"),
+  // { products, suppliers, openingStock, reorderPoints, salesData }
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+});
 var sessions = pgTable("sessions", {
   sid: varchar("sid", { length: 255 }).primaryKey(),
   sess: json("sess").notNull(),
@@ -69,6 +83,14 @@ var users = pgTable("users", {
   profileImageUrl: text("profile_image_url"),
   isAdmin: boolean("is_admin").default(false).notNull(),
   termsAcceptedAt: timestamp("terms_accepted_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
+});
+var userClients = pgTable("user_clients", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id).notNull(),
+  clientId: integer("client_id").references(() => clients.id).notNull(),
+  role: varchar("role", { length: 20 }).default("member").notNull(),
+  // owner, admin, member
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
 });
 var invitedUsers = pgTable("invited_users", {
@@ -100,6 +122,7 @@ var auditLogs = pgTable("audit_logs", {
 });
 var manufacturers = pgTable("manufacturers", {
   id: serial("id").primaryKey(),
+  clientId: integer("client_id").references(() => clients.id).notNull(),
   name: varchar("name", { length: 255 }).notNull(),
   email: varchar("email", { length: 255 }),
   contactPerson: varchar("contact_person", { length: 255 }),
@@ -111,12 +134,11 @@ var manufacturers = pgTable("manufacturers", {
 });
 var products = pgTable("products", {
   id: serial("id").primaryKey(),
-  skuCode: varchar("sku_code", { length: 50 }).notNull().unique(),
+  clientId: integer("client_id").references(() => clients.id).notNull(),
+  skuCode: varchar("sku_code", { length: 50 }).notNull(),
   productName: varchar("product_name", { length: 255 }).notNull(),
   brand: varchar("brand", { length: 10 }).notNull(),
-  // THH or NP
   category: varchar("category", { length: 50 }).notNull(),
-  // HORSE_MIX, PET_FORMULA, CHEW, SPRAY, SHAMPOO, GRAVY, OTHER
   packSizeG: integer("pack_size_g"),
   unitsPerCase: integer("units_per_case"),
   manufacturerId: integer("manufacturer_id").references(() => manufacturers.id),
@@ -126,12 +148,14 @@ var products = pgTable("products", {
   apBrandEquivalent: varchar("ap_brand_equivalent", { length: 50 }),
   reorderPointOverride: integer("reorder_point_override"),
   weightKg: integer("weight_kg"),
-  // for courier booking
   notes: text("notes"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
-});
+}, (table) => [
+  uniqueIndex("products_client_sku_idx").on(table.clientId, table.skuCode)
+]);
 var batches = pgTable("batches", {
   id: serial("id").primaryKey(),
+  clientId: integer("client_id").references(() => clients.id).notNull(),
   skuCode: varchar("sku_code", { length: 50 }).notNull(),
   sizeVariant: varchar("size_variant", { length: 50 }).notNull(),
   stockLocation: varchar("stock_location", { length: 10 }).notNull(),
@@ -147,19 +171,17 @@ var batches = pgTable("batches", {
 });
 var stockTransactions = pgTable("stock_transactions", {
   id: serial("id").primaryKey(),
+  clientId: integer("client_id").references(() => clients.id).notNull(),
   batchId: integer("batch_id").references(() => batches.id),
   skuCode: varchar("sku_code", { length: 50 }).notNull(),
   stockLocation: varchar("stock_location", { length: 10 }).notNull(),
   transactionType: varchar("transaction_type", { length: 30 }).notNull(),
-  // DELIVERY_IN, SALES_OUT, PNP_OUT, TRANSFER_THH_TO_88, ADJUSTMENT
   quantity: integer("quantity").notNull(),
-  // positive for IN, negative for OUT
   transactionDate: date("transaction_date").notNull(),
   periodMonth: integer("period_month").notNull(),
   periodYear: integer("period_year").notNull(),
   reference: varchar("reference", { length: 255 }),
   channel: varchar("channel", { length: 5 }),
-  // D, W, R, C, G
   createdBy: integer("created_by").references(() => users.id),
   approvedBy: integer("approved_by").references(() => users.id),
   notes: text("notes"),
@@ -167,6 +189,7 @@ var stockTransactions = pgTable("stock_transactions", {
 });
 var purchaseOrders = pgTable("purchase_orders", {
   id: serial("id").primaryKey(),
+  clientId: integer("client_id").references(() => clients.id).notNull(),
   manufacturerId: integer("manufacturer_id").references(() => manufacturers.id).notNull(),
   status: varchar("status", { length: 20 }).default("DRAFT").notNull(),
   createdDate: date("created_date").notNull(),
@@ -180,6 +203,7 @@ var purchaseOrders = pgTable("purchase_orders", {
 });
 var purchaseOrderLines = pgTable("purchase_order_lines", {
   id: serial("id").primaryKey(),
+  clientId: integer("client_id").references(() => clients.id).notNull(),
   poId: integer("po_id").references(() => purchaseOrders.id).notNull(),
   skuCode: varchar("sku_code", { length: 50 }).notNull(),
   sizeVariant: varchar("size_variant", { length: 50 }).notNull(),
@@ -188,6 +212,7 @@ var purchaseOrderLines = pgTable("purchase_order_lines", {
 });
 var pnpOrders = pgTable("pnp_orders", {
   id: serial("id").primaryKey(),
+  clientId: integer("client_id").references(() => clients.id).notNull(),
   weekEndingDate: date("week_ending_date").notNull(),
   appointmentTime: timestamp("appointment_time", { withTimezone: true }),
   uploadedFileName: varchar("uploaded_file_name", { length: 255 }),
@@ -199,6 +224,7 @@ var pnpOrders = pgTable("pnp_orders", {
 });
 var pnpOrderLines = pgTable("pnp_order_lines", {
   id: serial("id").primaryKey(),
+  clientId: integer("client_id").references(() => clients.id).notNull(),
   pnpOrderId: integer("pnp_order_id").references(() => pnpOrders.id).notNull(),
   skuCode: varchar("sku_code", { length: 50 }).notNull(),
   dcCode: varchar("dc_code", { length: 10 }).notNull(),
@@ -210,6 +236,7 @@ var pnpOrderLines = pgTable("pnp_order_lines", {
 });
 var orders = pgTable("orders", {
   id: serial("id").primaryKey(),
+  clientId: integer("client_id").references(() => clients.id).notNull(),
   orderDate: date("order_date").notNull(),
   customerName: varchar("customer_name", { length: 255 }).notNull(),
   customerEmail: varchar("customer_email", { length: 255 }),
@@ -220,7 +247,6 @@ var orders = pgTable("orders", {
   deliveryProvince: varchar("delivery_province", { length: 100 }),
   deliveryPostalCode: varchar("delivery_postal_code", { length: 10 }),
   salesChannel: varchar("sales_channel", { length: 20 }).notNull(),
-  // Website, Takealot, Wholesale, Retail, Other
   orderReference: varchar("order_reference", { length: 100 }),
   specialInstructions: text("special_instructions"),
   status: varchar("status", { length: 30 }).default("RECEIVED").notNull(),
@@ -234,6 +260,7 @@ var orders = pgTable("orders", {
 });
 var orderLines = pgTable("order_lines", {
   id: serial("id").primaryKey(),
+  clientId: integer("client_id").references(() => clients.id).notNull(),
   orderId: integer("order_id").references(() => orders.id).notNull(),
   skuCode: varchar("sku_code", { length: 50 }).notNull(),
   sizeVariant: varchar("size_variant", { length: 50 }),
@@ -243,6 +270,7 @@ var orderLines = pgTable("order_lines", {
 });
 var notifications = pgTable("notifications", {
   id: serial("id").primaryKey(),
+  clientId: integer("client_id").references(() => clients.id).notNull(),
   type: varchar("type", { length: 50 }).notNull(),
   title: varchar("title", { length: 255 }).notNull(),
   message: text("message"),
@@ -254,12 +282,16 @@ var notifications = pgTable("notifications", {
 });
 var systemSettings = pgTable("system_settings", {
   id: serial("id").primaryKey(),
-  key: varchar("key", { length: 100 }).notNull().unique(),
+  clientId: integer("client_id").references(() => clients.id).notNull(),
+  key: varchar("key", { length: 100 }).notNull(),
   value: text("value"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull()
-});
+}, (table) => [
+  uniqueIndex("system_settings_client_key_idx").on(table.clientId, table.key)
+]);
 var rawMaterials = pgTable("raw_materials", {
   id: serial("id").primaryKey(),
+  clientId: integer("client_id").references(() => clients.id).notNull(),
   name: varchar("name", { length: 255 }).notNull(),
   currentStock: integer("current_stock").default(0),
   unitOfMeasure: varchar("unit_of_measure", { length: 50 }),
@@ -269,6 +301,7 @@ var rawMaterials = pgTable("raw_materials", {
 });
 var productRawMaterials = pgTable("product_raw_materials", {
   id: serial("id").primaryKey(),
+  clientId: integer("client_id").references(() => clients.id).notNull(),
   productId: integer("product_id").references(() => products.id).notNull(),
   rawMaterialId: integer("raw_material_id").references(() => rawMaterials.id).notNull(),
   quantityPerBatch: integer("quantity_per_batch"),
@@ -276,12 +309,14 @@ var productRawMaterials = pgTable("product_raw_materials", {
 });
 var pnpProductMappings = pgTable("pnp_product_mappings", {
   id: serial("id").primaryKey(),
+  clientId: integer("client_id").references(() => clients.id).notNull(),
   pnpProductName: varchar("pnp_product_name", { length: 255 }).notNull(),
   skuCode: varchar("sku_code", { length: 50 }).notNull()
 });
 var apBrandMappings = pgTable("ap_brand_mappings", {
   id: serial("id").primaryKey(),
-  apProductCode: varchar("ap_product_code", { length: 50 }).notNull().unique(),
+  clientId: integer("client_id").references(() => clients.id).notNull(),
+  apProductCode: varchar("ap_product_code", { length: 50 }).notNull(),
   thhSkuCode: varchar("thh_sku_code", { length: 50 }).notNull(),
   apProductName: varchar("ap_product_name", { length: 255 })
 });
@@ -431,6 +466,17 @@ function logAudit(req, action, opts = {}) {
 
 // server/routes.ts
 import { eq as eq2, sql as sql2, and, desc, asc, sum, or, isNull, gte, lte } from "drizzle-orm";
+
+// server/clientContext.ts
+function clientContext(req, _res, next) {
+  req.clientId = 1;
+  next();
+}
+function getClientId(req) {
+  return req.clientId;
+}
+
+// server/routes.ts
 function isAuthenticated(req, res, next) {
   if (req.isAuthenticated()) return next();
   res.status(401).json({ message: "Not authenticated" });
@@ -533,7 +579,8 @@ function registerRoutes(router2) {
     try {
       const { category, brand, location, active } = req.query;
       const isActive = active === "false" ? false : true;
-      const conditions = [eq2(products.isActive, isActive)];
+      const clientId = getClientId(req);
+      const conditions = [eq2(products.isActive, isActive), eq2(products.clientId, clientId)];
       if (category) conditions.push(eq2(products.category, String(category)));
       if (brand) conditions.push(eq2(products.brand, String(brand)));
       if (location) conditions.push(eq2(products.primaryStockLocation, String(location)));
@@ -564,6 +611,7 @@ function registerRoutes(router2) {
   router2.get("/api/products/:skuCode", isAuthenticated, async (req, res) => {
     try {
       const { skuCode } = req.params;
+      const clientId = getClientId(req);
       const result = await db.select({
         id: products.id,
         skuCode: products.skuCode,
@@ -582,7 +630,7 @@ function registerRoutes(router2) {
         notes: products.notes,
         createdAt: products.createdAt,
         manufacturerName: manufacturers.name
-      }).from(products).leftJoin(manufacturers, eq2(products.manufacturerId, manufacturers.id)).where(eq2(products.skuCode, skuCode)).limit(1);
+      }).from(products).leftJoin(manufacturers, eq2(products.manufacturerId, manufacturers.id)).where(and(eq2(products.skuCode, skuCode), eq2(products.clientId, clientId))).limit(1);
       if (result.length === 0) {
         return res.status(404).json({ message: "Product not found" });
       }
@@ -609,15 +657,16 @@ function registerRoutes(router2) {
   router2.patch("/api/products/:skuCode", isAuthenticated, async (req, res) => {
     try {
       const { skuCode } = req.params;
+      const clientId = getClientId(req);
       const parsed = updateProductSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid input", errors: parsed.error.flatten() });
       }
-      const existing = await db.select().from(products).where(eq2(products.skuCode, skuCode)).limit(1);
+      const existing = await db.select().from(products).where(and(eq2(products.skuCode, skuCode), eq2(products.clientId, clientId))).limit(1);
       if (existing.length === 0) {
         return res.status(404).json({ message: "Product not found" });
       }
-      const updated = await db.update(products).set(parsed.data).where(eq2(products.skuCode, skuCode)).returning();
+      const updated = await db.update(products).set(parsed.data).where(and(eq2(products.skuCode, skuCode), eq2(products.clientId, clientId))).returning();
       logAudit(req, "PRODUCT_UPDATED", {
         resourceType: "Product",
         resourceId: skuCode,
@@ -629,24 +678,26 @@ function registerRoutes(router2) {
       res.status(500).json({ message: "Failed to update product", error: err.message });
     }
   });
-  router2.get("/api/manufacturers", isAuthenticated, async (_req, res) => {
+  router2.get("/api/manufacturers", isAuthenticated, async (req, res) => {
     try {
-      const result = await db.select().from(manufacturers).orderBy(asc(manufacturers.name));
+      const clientId = getClientId(req);
+      const result = await db.select().from(manufacturers).where(eq2(manufacturers.clientId, clientId)).orderBy(asc(manufacturers.name));
       res.json(result);
     } catch (err) {
       res.status(500).json({ message: "Failed to fetch manufacturers", error: err.message });
     }
   });
-  router2.get("/api/stock/summary", isAuthenticated, async (_req, res) => {
+  router2.get("/api/stock/summary", isAuthenticated, async (req, res) => {
     try {
+      const clientId = getClientId(req);
       const thhStockSub = db.select({
         skuCode: stockTransactions.skuCode,
         total: sum(stockTransactions.quantity).as("thh_total")
-      }).from(stockTransactions).where(eq2(stockTransactions.stockLocation, "THH")).groupBy(stockTransactions.skuCode).as("thh_stock");
+      }).from(stockTransactions).where(and(eq2(stockTransactions.stockLocation, "THH"), eq2(stockTransactions.clientId, clientId))).groupBy(stockTransactions.skuCode).as("thh_stock");
       const eeStockSub = db.select({
         skuCode: stockTransactions.skuCode,
         total: sum(stockTransactions.quantity).as("ee_total")
-      }).from(stockTransactions).where(eq2(stockTransactions.stockLocation, "88")).groupBy(stockTransactions.skuCode).as("ee_stock");
+      }).from(stockTransactions).where(and(eq2(stockTransactions.stockLocation, "88"), eq2(stockTransactions.clientId, clientId))).groupBy(stockTransactions.skuCode).as("ee_stock");
       const result = await db.select({
         skuCode: products.skuCode,
         productName: products.productName,
@@ -658,7 +709,7 @@ function registerRoutes(router2) {
         thhStock: thhStockSub.total,
         eightEightStock: eeStockSub.total,
         reorderPoint: products.reorderPointOverride
-      }).from(products).leftJoin(manufacturers, eq2(products.manufacturerId, manufacturers.id)).leftJoin(thhStockSub, eq2(products.skuCode, thhStockSub.skuCode)).leftJoin(eeStockSub, eq2(products.skuCode, eeStockSub.skuCode)).where(eq2(products.isActive, true)).orderBy(asc(products.productName));
+      }).from(products).leftJoin(manufacturers, eq2(products.manufacturerId, manufacturers.id)).leftJoin(thhStockSub, eq2(products.skuCode, thhStockSub.skuCode)).leftJoin(eeStockSub, eq2(products.skuCode, eeStockSub.skuCode)).where(and(eq2(products.isActive, true), eq2(products.clientId, clientId))).orderBy(asc(products.productName));
       const mapped = result.map((r) => ({
         ...r,
         thhStock: r.thhStock ? Number(r.thhStock) : 0,
@@ -673,8 +724,9 @@ function registerRoutes(router2) {
   router2.get("/api/stock/transactions/:skuCode", isAuthenticated, async (req, res) => {
     try {
       const { skuCode } = req.params;
+      const clientId = getClientId(req);
       const { location, type, from, to } = req.query;
-      const conditions = [eq2(stockTransactions.skuCode, skuCode)];
+      const conditions = [eq2(stockTransactions.skuCode, skuCode), eq2(stockTransactions.clientId, clientId)];
       if (location) conditions.push(eq2(stockTransactions.stockLocation, String(location)));
       if (type) conditions.push(eq2(stockTransactions.transactionType, String(type)));
       if (from) conditions.push(gte(stockTransactions.transactionDate, String(from)));
@@ -688,8 +740,9 @@ function registerRoutes(router2) {
   router2.get("/api/batches/:skuCode", isAuthenticated, async (req, res) => {
     try {
       const { skuCode } = req.params;
+      const clientId = getClientId(req);
       const { location } = req.query;
-      const conditions = [eq2(batches.skuCode, skuCode)];
+      const conditions = [eq2(batches.skuCode, skuCode), eq2(batches.clientId, clientId)];
       if (location) conditions.push(eq2(batches.stockLocation, String(location)));
       const result = await db.select().from(batches).where(and(...conditions)).orderBy(desc(batches.isActive), asc(batches.manufactureDate));
       res.json(result);
@@ -718,8 +771,10 @@ function registerRoutes(router2) {
       }
       const data = parsed.data;
       const user = req.user;
+      const clientId = getClientId(req);
       const receivedDate = new Date(data.receivedDate);
       const [newBatch] = await db.insert(batches).values({
+        clientId,
         skuCode: data.skuCode,
         sizeVariant: data.sizeVariant,
         stockLocation: data.stockLocation,
@@ -732,6 +787,7 @@ function registerRoutes(router2) {
         notes: data.notes || null
       }).returning();
       const [txn] = await db.insert(stockTransactions).values({
+        clientId,
         batchId: newBatch.id,
         skuCode: data.skuCode,
         stockLocation: data.stockLocation,
@@ -771,8 +827,10 @@ function registerRoutes(router2) {
       }
       const data = parsed.data;
       const user = req.user;
+      const clientId = getClientId(req);
       const now = /* @__PURE__ */ new Date();
       const [txn] = await db.insert(stockTransactions).values({
+        clientId,
         batchId: data.batchId || null,
         skuCode: data.skuCode,
         stockLocation: data.stockLocation,
@@ -795,8 +853,9 @@ function registerRoutes(router2) {
       res.status(500).json({ message: "Failed to create adjustment", error: err.message });
     }
   });
-  router2.get("/api/stock/reorder-check", isAuthenticated, async (_req, res) => {
+  router2.get("/api/stock/reorder-check", isAuthenticated, async (req, res) => {
     try {
+      const clientId = getClientId(req);
       const activeProducts = await db.select({
         skuCode: products.skuCode,
         productName: products.productName,
@@ -804,12 +863,12 @@ function registerRoutes(router2) {
         unitsPerCase: products.unitsPerCase,
         reorderPointOverride: products.reorderPointOverride,
         manufacturerName: manufacturers.name
-      }).from(products).leftJoin(manufacturers, eq2(products.manufacturerId, manufacturers.id)).where(eq2(products.isActive, true));
+      }).from(products).leftJoin(manufacturers, eq2(products.manufacturerId, manufacturers.id)).where(and(eq2(products.isActive, true), eq2(products.clientId, clientId)));
       const stockBySku = await db.select({
         skuCode: stockTransactions.skuCode,
         stockLocation: stockTransactions.stockLocation,
         total: sum(stockTransactions.quantity).as("total")
-      }).from(stockTransactions).groupBy(stockTransactions.skuCode, stockTransactions.stockLocation);
+      }).from(stockTransactions).where(eq2(stockTransactions.clientId, clientId)).groupBy(stockTransactions.skuCode, stockTransactions.stockLocation);
       const stockMap = {};
       for (const row of stockBySku) {
         if (!stockMap[row.skuCode]) stockMap[row.skuCode] = {};
@@ -821,7 +880,7 @@ function registerRoutes(router2) {
       const annualSales = await db.select({
         skuCode: stockTransactions.skuCode,
         totalOut: sql2`COALESCE(ABS(SUM(CASE WHEN ${stockTransactions.transactionType} IN ('SALES_OUT', 'PNP_OUT') THEN ${stockTransactions.quantity} ELSE 0 END)), 0)`.as("total_out")
-      }).from(stockTransactions).where(gte(stockTransactions.transactionDate, oneYearAgoStr)).groupBy(stockTransactions.skuCode);
+      }).from(stockTransactions).where(and(gte(stockTransactions.transactionDate, oneYearAgoStr), eq2(stockTransactions.clientId, clientId))).groupBy(stockTransactions.skuCode);
       const salesMap = {};
       for (const row of annualSales) {
         salesMap[row.skuCode] = Number(row.totalOut) || 0;
@@ -880,7 +939,8 @@ function registerRoutes(router2) {
       }
       const { skuCode, cases } = parsed.data;
       const user = req.user;
-      const [product] = await db.select().from(products).where(eq2(products.skuCode, skuCode)).limit(1);
+      const clientId = getClientId(req);
+      const [product] = await db.select().from(products).where(and(eq2(products.skuCode, skuCode), eq2(products.clientId, clientId))).limit(1);
       if (!product) {
         return res.status(404).json({ message: "Product not found" });
       }
@@ -891,6 +951,7 @@ function registerRoutes(router2) {
       const now = /* @__PURE__ */ new Date();
       const dateStr = now.toISOString().split("T")[0];
       const [thhTxn] = await db.insert(stockTransactions).values({
+        clientId,
         skuCode,
         stockLocation: "THH",
         transactionType: "TRANSFER_THH_TO_88",
@@ -902,6 +963,7 @@ function registerRoutes(router2) {
         createdBy: user.id
       }).returning();
       const [eeTxn] = await db.insert(stockTransactions).values({
+        clientId,
         skuCode,
         stockLocation: "88",
         transactionType: "TRANSFER_THH_TO_88",
@@ -926,10 +988,14 @@ function registerRoutes(router2) {
   router2.get("/api/notifications", isAuthenticated, async (req, res) => {
     try {
       const user = req.user;
+      const clientId = getClientId(req);
       const result = await db.select().from(notifications).where(
-        or(
-          eq2(notifications.userId, user.id),
-          isNull(notifications.userId)
+        and(
+          eq2(notifications.clientId, clientId),
+          or(
+            eq2(notifications.userId, user.id),
+            isNull(notifications.userId)
+          )
         )
       ).orderBy(desc(notifications.createdAt)).limit(50);
       res.json(result);
@@ -940,7 +1006,8 @@ function registerRoutes(router2) {
   router2.post("/api/notifications/:id/read", isAuthenticated, async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
-      const [updated] = await db.update(notifications).set({ isRead: true }).where(eq2(notifications.id, id)).returning();
+      const clientId = getClientId(req);
+      const [updated] = await db.update(notifications).set({ isRead: true }).where(and(eq2(notifications.id, id), eq2(notifications.clientId, clientId))).returning();
       if (!updated) {
         return res.status(404).json({ message: "Notification not found" });
       }
@@ -952,10 +1019,11 @@ function registerRoutes(router2) {
   router2.get("/api/orders", isAuthenticated, async (req, res) => {
     try {
       const { status, channel } = req.query;
-      const conditions = [];
+      const clientId = getClientId(req);
+      const conditions = [eq2(orders.clientId, clientId)];
       if (status) conditions.push(eq2(orders.status, String(status)));
       if (channel) conditions.push(eq2(orders.salesChannel, String(channel)));
-      const result = await db.select().from(orders).where(conditions.length > 0 ? and(...conditions) : void 0).orderBy(desc(orders.createdAt));
+      const result = await db.select().from(orders).where(and(...conditions)).orderBy(desc(orders.createdAt));
       res.json(result);
     } catch (err) {
       res.status(500).json({ message: "Failed to fetch orders", error: err.message });
@@ -964,7 +1032,8 @@ function registerRoutes(router2) {
   router2.get("/api/orders/:id", isAuthenticated, async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
-      const [order] = await db.select().from(orders).where(eq2(orders.id, id)).limit(1);
+      const clientId = getClientId(req);
+      const [order] = await db.select().from(orders).where(and(eq2(orders.id, id), eq2(orders.clientId, clientId))).limit(1);
       if (!order) {
         return res.status(404).json({ message: "Order not found" });
       }
@@ -977,7 +1046,7 @@ function registerRoutes(router2) {
         availableQuantity: orderLines.availableQuantity,
         shortfall: orderLines.shortfall,
         productName: products.productName
-      }).from(orderLines).leftJoin(products, eq2(orderLines.skuCode, products.skuCode)).where(eq2(orderLines.orderId, id));
+      }).from(orderLines).leftJoin(products, eq2(orderLines.skuCode, products.skuCode)).where(and(eq2(orderLines.orderId, id), eq2(orderLines.clientId, clientId)));
       res.json({ ...order, lines });
     } catch (err) {
       res.status(500).json({ message: "Failed to fetch order", error: err.message });
@@ -1012,6 +1081,7 @@ function registerRoutes(router2) {
       }
       const data = parsed.data;
       const user = req.user;
+      const clientId = getClientId(req);
       const lineDetails = await Promise.all(
         data.lines.map(async (line) => {
           const [stockResult] = await db.select({
@@ -1019,7 +1089,8 @@ function registerRoutes(router2) {
           }).from(stockTransactions).where(
             and(
               eq2(stockTransactions.skuCode, line.skuCode),
-              eq2(stockTransactions.stockLocation, "THH")
+              eq2(stockTransactions.stockLocation, "THH"),
+              eq2(stockTransactions.clientId, clientId)
             )
           );
           const currentStock = Number(stockResult?.total) || 0;
@@ -1035,6 +1106,7 @@ function registerRoutes(router2) {
         })
       );
       const [newOrder] = await db.insert(orders).values({
+        clientId,
         orderDate: data.orderDate,
         customerName: data.customerName,
         customerEmail: data.customerEmail || null,
@@ -1053,6 +1125,7 @@ function registerRoutes(router2) {
       const createdLines = await Promise.all(
         lineDetails.map(async (line) => {
           const [created] = await db.insert(orderLines).values({
+            clientId,
             orderId: newOrder.id,
             skuCode: line.skuCode,
             sizeVariant: line.sizeVariant,
@@ -1085,12 +1158,13 @@ function registerRoutes(router2) {
   router2.patch("/api/orders/:id/status", isAuthenticated, async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
+      const clientId = getClientId(req);
       const parsed = updateOrderStatusSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid input", errors: parsed.error.flatten() });
       }
       const { status: newStatus } = parsed.data;
-      const [order] = await db.select().from(orders).where(eq2(orders.id, id)).limit(1);
+      const [order] = await db.select().from(orders).where(and(eq2(orders.id, id), eq2(orders.clientId, clientId))).limit(1);
       if (!order) {
         return res.status(404).json({ message: "Order not found" });
       }
@@ -1103,12 +1177,13 @@ function registerRoutes(router2) {
       const updateFields = { status: newStatus };
       if (newStatus === "DISPATCHED") {
         updateFields.dispatchedAt = /* @__PURE__ */ new Date();
-        const lines = await db.select().from(orderLines).where(eq2(orderLines.orderId, id));
+        const lines = await db.select().from(orderLines).where(and(eq2(orderLines.orderId, id), eq2(orderLines.clientId, clientId)));
         const user = req.user;
         const now = /* @__PURE__ */ new Date();
         const dateStr = now.toISOString().split("T")[0];
         for (const line of lines) {
           await db.insert(stockTransactions).values({
+            clientId,
             skuCode: line.skuCode,
             stockLocation: "THH",
             transactionType: "SALES_OUT",
@@ -1122,7 +1197,7 @@ function registerRoutes(router2) {
           });
         }
       }
-      const [updated] = await db.update(orders).set(updateFields).where(eq2(orders.id, id)).returning();
+      const [updated] = await db.update(orders).set(updateFields).where(and(eq2(orders.id, id), eq2(orders.clientId, clientId))).returning();
       logAudit(req, "ORDER_STATUS_UPDATED", {
         resourceType: "Order",
         resourceId: String(id),
@@ -1143,15 +1218,16 @@ function registerRoutes(router2) {
   router2.patch("/api/orders/:id", isAuthenticated, async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
+      const clientId = getClientId(req);
       const parsed = updateOrderFieldsSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid input", errors: parsed.error.flatten() });
       }
-      const [existing] = await db.select().from(orders).where(eq2(orders.id, id)).limit(1);
+      const [existing] = await db.select().from(orders).where(and(eq2(orders.id, id), eq2(orders.clientId, clientId))).limit(1);
       if (!existing) {
         return res.status(404).json({ message: "Order not found" });
       }
-      const [updated] = await db.update(orders).set(parsed.data).where(eq2(orders.id, id)).returning();
+      const [updated] = await db.update(orders).set(parsed.data).where(and(eq2(orders.id, id), eq2(orders.clientId, clientId))).returning();
       logAudit(req, "ORDER_UPDATED", {
         resourceType: "Order",
         resourceId: String(id),
@@ -1167,7 +1243,8 @@ function registerRoutes(router2) {
   router2.get("/api/orders/:id/invoice-data", isAuthenticated, async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
-      const [order] = await db.select().from(orders).where(eq2(orders.id, id)).limit(1);
+      const clientId = getClientId(req);
+      const [order] = await db.select().from(orders).where(and(eq2(orders.id, id), eq2(orders.clientId, clientId))).limit(1);
       if (!order) {
         return res.status(404).json({ message: "Order not found" });
       }
@@ -1176,7 +1253,7 @@ function registerRoutes(router2) {
         quantityOrdered: orderLines.quantityOrdered,
         productName: products.productName,
         xeroItemCode: products.xeroItemCode
-      }).from(orderLines).leftJoin(products, eq2(orderLines.skuCode, products.skuCode)).where(eq2(orderLines.orderId, id));
+      }).from(orderLines).leftJoin(products, eq2(orderLines.skuCode, products.skuCode)).where(and(eq2(orderLines.orderId, id), eq2(orderLines.clientId, clientId)));
       res.json({
         invoiceDate: order.orderDate,
         customerName: order.customerName,
@@ -1197,7 +1274,8 @@ function registerRoutes(router2) {
   router2.get("/api/orders/:id/courier-data", isAuthenticated, async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
-      const [order] = await db.select().from(orders).where(eq2(orders.id, id)).limit(1);
+      const clientId = getClientId(req);
+      const [order] = await db.select().from(orders).where(and(eq2(orders.id, id), eq2(orders.clientId, clientId))).limit(1);
       if (!order) {
         return res.status(404).json({ message: "Order not found" });
       }
@@ -1255,9 +1333,10 @@ function registerXeroRoutes(router2) {
         const sheetName = workbook.SheetNames[0];
         const sheet = workbook.Sheets[sheetName];
         const rawRows = XLSX.utils.sheet_to_json(sheet);
-        const allProducts = await db.select().from(products).where(eq3(products.isActive, true));
+        const clientId = getClientId(req);
+        const allProducts = await db.select().from(products).where(and2(eq3(products.clientId, clientId), eq3(products.isActive, true)));
         const productMap = new Map(allProducts.map((p) => [p.skuCode, p]));
-        const apMappings = await db.select().from(apBrandMappings);
+        const apMappings = await db.select().from(apBrandMappings).where(eq3(apBrandMappings.clientId, clientId));
         const apMap = new Map(apMappings.map((m) => [m.apProductCode, m.thhSkuCode]));
         const parsed = [];
         for (const row of rawRows) {
@@ -1331,7 +1410,7 @@ function registerXeroRoutes(router2) {
             mapped: true
           });
         }
-        const ledgerSetting = await db.select().from(systemSettings).where(eq3(systemSettings.key, "ledger_start_date")).limit(1);
+        const ledgerSetting = await db.select().from(systemSettings).where(and2(eq3(systemSettings.clientId, clientId), eq3(systemSettings.key, "ledger_start_date"))).limit(1);
         res.json({
           fromDate,
           toDate,
@@ -1365,8 +1444,9 @@ function registerXeroRoutes(router2) {
       }
       const { fromDate, toDate, rows } = parsed.data;
       const userId = req.user?.id;
+      const clientId = getClientId(req);
       const reference = `Xero import ${fromDate} to ${toDate}`;
-      const ledgerSetting = await db.select().from(systemSettings).where(eq3(systemSettings.key, "ledger_start_date")).limit(1);
+      const ledgerSetting = await db.select().from(systemSettings).where(and2(eq3(systemSettings.clientId, clientId), eq3(systemSettings.key, "ledger_start_date"))).limit(1);
       if (ledgerSetting.length === 0) {
         return res.status(400).json({
           message: "No opening balance has been imported yet. Import opening balances first to establish the ledger start date.",
@@ -1382,6 +1462,7 @@ function registerXeroRoutes(router2) {
       }
       const existing = await db.select().from(stockTransactions).where(
         and2(
+          eq3(stockTransactions.clientId, clientId),
           eq3(stockTransactions.transactionType, "SALES_OUT"),
           eq3(stockTransactions.reference, reference)
         )
@@ -1401,6 +1482,7 @@ function registerXeroRoutes(router2) {
         const debitLocation = CHANNELS[row.channel]?.debitLocation ?? "THH";
         const activeBatches = await db.select().from(batches).where(
           and2(
+            eq3(batches.clientId, clientId),
             eq3(batches.skuCode, row.baseSku),
             eq3(batches.stockLocation, debitLocation),
             eq3(batches.isActive, true)
@@ -1410,6 +1492,7 @@ function registerXeroRoutes(router2) {
         let batchId = activeBatches[0]?.id ?? null;
         const txReference = row.invoiceNumber ? `${row.invoiceNumber} (${reference})` : reference;
         await db.insert(stockTransactions).values({
+          clientId,
           batchId,
           skuCode: row.baseSku,
           stockLocation: debitLocation,
@@ -1435,9 +1518,10 @@ function registerXeroRoutes(router2) {
       res.status(500).json({ message: "Failed to commit import", error: err.message });
     }
   });
-  router2.get("/api/xero/import/ledger-date", isAuthenticated, async (_req, res) => {
+  router2.get("/api/xero/import/ledger-date", isAuthenticated, async (req, res) => {
     try {
-      const ledgerSetting = await db.select().from(systemSettings).where(eq3(systemSettings.key, "ledger_start_date")).limit(1);
+      const clientId = getClientId(req);
+      const ledgerSetting = await db.select().from(systemSettings).where(and2(eq3(systemSettings.clientId, clientId), eq3(systemSettings.key, "ledger_start_date"))).limit(1);
       res.json({
         ledgerStartDate: ledgerSetting[0]?.value ?? null,
         hasOpeningBalance: ledgerSetting.length > 0
@@ -1446,8 +1530,9 @@ function registerXeroRoutes(router2) {
       res.status(500).json({ message: "Failed to fetch ledger date", error: err.message });
     }
   });
-  router2.get("/api/xero/import/history", isAuthenticated, async (_req, res) => {
+  router2.get("/api/xero/import/history", isAuthenticated, async (req, res) => {
     try {
+      const clientId = getClientId(req);
       const imports = await db.select({
         reference: stockTransactions.reference,
         transactionCount: sql3`count(*)`.as("transaction_count"),
@@ -1455,6 +1540,7 @@ function registerXeroRoutes(router2) {
         importedAt: sql3`min(${stockTransactions.createdAt})`.as("imported_at")
       }).from(stockTransactions).where(
         and2(
+          eq3(stockTransactions.clientId, clientId),
           eq3(stockTransactions.transactionType, "SALES_OUT"),
           like(stockTransactions.reference, "Xero import %")
         )
@@ -1518,9 +1604,10 @@ function registerPnpRoutes(router2) {
         const sheetName = workbook.SheetNames[0];
         const sheet = workbook.Sheets[sheetName];
         const rawRows = XLSX2.utils.sheet_to_json(sheet);
-        const mappings = await db.select().from(pnpProductMappings);
+        const clientId = getClientId(req);
+        const mappings = await db.select().from(pnpProductMappings).where(eq4(pnpProductMappings.clientId, clientId));
         const mappingByName = new Map(mappings.map((m) => [m.pnpProductName.toLowerCase(), m.skuCode]));
-        const allProducts = await db.select().from(products).where(eq4(products.isActive, true));
+        const allProducts = await db.select().from(products).where(and3(eq4(products.clientId, clientId), eq4(products.isActive, true)));
         const lines = [];
         for (const row of rawRows) {
           const productName = String(
@@ -1613,14 +1700,16 @@ function registerPnpRoutes(router2) {
       }
       const { weekEndingDate, appointmentTime, fileName, lines } = parsed.data;
       const userId = req.user?.id;
+      const clientId = getClientId(req);
       const [order] = await db.insert(pnpOrders).values({
+        clientId,
         weekEndingDate,
         appointmentTime: appointmentTime ? new Date(appointmentTime) : null,
         uploadedFileName: fileName ?? null,
         status: "CONFIRMED",
         createdBy: userId
       }).returning();
-      const allProducts = await db.select().from(products).where(eq4(products.isActive, true));
+      const allProducts = await db.select().from(products).where(and3(eq4(products.clientId, clientId), eq4(products.isActive, true)));
       const productMap = new Map(allProducts.map((p) => [p.skuCode, p]));
       const skuCodes = [...new Set(lines.map((l) => l.skuCode))];
       const stockBySkuResult = await db.select({
@@ -1628,6 +1717,7 @@ function registerPnpRoutes(router2) {
         totalQty: sum2(stockTransactions.quantity)
       }).from(stockTransactions).where(
         and3(
+          eq4(stockTransactions.clientId, clientId),
           eq4(stockTransactions.stockLocation, "88"),
           sql4`${stockTransactions.skuCode} = ANY(${skuCodes})`
         )
@@ -1650,6 +1740,7 @@ function registerPnpRoutes(router2) {
         const shortfallCases = Math.max(0, totalOrderedCases - availableCases);
         const lineShortfall = shortfallCases > 0 ? Math.max(0, line.orderedCases - availableCases) : 0;
         const [created] = await db.insert(pnpOrderLines).values({
+          clientId,
           pnpOrderId: order.id,
           skuCode: line.skuCode,
           dcCode: line.dcCode,
@@ -1684,9 +1775,10 @@ function registerPnpRoutes(router2) {
       res.status(500).json({ message: "Failed to create order", error: err.message });
     }
   });
-  router2.get("/api/pnp/orders", isAuthenticated, async (_req, res) => {
+  router2.get("/api/pnp/orders", isAuthenticated, async (req, res) => {
     try {
-      const orderList = await db.select().from(pnpOrders).orderBy(desc3(pnpOrders.createdAt));
+      const clientId = getClientId(req);
+      const orderList = await db.select().from(pnpOrders).where(eq4(pnpOrders.clientId, clientId)).orderBy(desc3(pnpOrders.createdAt));
       res.json(orderList);
     } catch (err) {
       console.error("PnP orders list error:", err);
@@ -1699,11 +1791,12 @@ function registerPnpRoutes(router2) {
       if (isNaN(orderId)) {
         return res.status(400).json({ message: "Invalid order ID" });
       }
-      const [order] = await db.select().from(pnpOrders).where(eq4(pnpOrders.id, orderId));
+      const clientId = getClientId(req);
+      const [order] = await db.select().from(pnpOrders).where(and3(eq4(pnpOrders.clientId, clientId), eq4(pnpOrders.id, orderId)));
       if (!order) {
         return res.status(404).json({ message: "Order not found" });
       }
-      const lines = await db.select().from(pnpOrderLines).where(eq4(pnpOrderLines.pnpOrderId, orderId));
+      const lines = await db.select().from(pnpOrderLines).where(and3(eq4(pnpOrderLines.clientId, clientId), eq4(pnpOrderLines.pnpOrderId, orderId)));
       const byDc = {};
       for (const line of lines) {
         if (!byDc[line.dcCode]) byDc[line.dcCode] = [];
@@ -1721,12 +1814,13 @@ function registerPnpRoutes(router2) {
       if (isNaN(orderId)) {
         return res.status(400).json({ message: "Invalid order ID" });
       }
-      const [order] = await db.select().from(pnpOrders).where(eq4(pnpOrders.id, orderId));
+      const clientId = getClientId(req);
+      const [order] = await db.select().from(pnpOrders).where(and3(eq4(pnpOrders.clientId, clientId), eq4(pnpOrders.id, orderId)));
       if (!order) {
         return res.status(404).json({ message: "Order not found" });
       }
-      const lines = await db.select().from(pnpOrderLines).where(eq4(pnpOrderLines.pnpOrderId, orderId));
-      const allProducts = await db.select().from(products).where(eq4(products.isActive, true));
+      const lines = await db.select().from(pnpOrderLines).where(and3(eq4(pnpOrderLines.clientId, clientId), eq4(pnpOrderLines.pnpOrderId, orderId)));
+      const allProducts = await db.select().from(products).where(and3(eq4(products.clientId, clientId), eq4(products.isActive, true)));
       const productMap = new Map(allProducts.map((p) => [p.skuCode, p.productName]));
       const apptTime = order.appointmentTime ? new Date(order.appointmentTime).toLocaleString("en-ZA", {
         weekday: "long",
@@ -1812,14 +1906,15 @@ function registerPnpRoutes(router2) {
       if (isNaN(orderId)) {
         return res.status(400).json({ message: "Invalid order ID" });
       }
-      const [order] = await db.select().from(pnpOrders).where(eq4(pnpOrders.id, orderId));
+      const clientId = getClientId(req);
+      const [order] = await db.select().from(pnpOrders).where(and3(eq4(pnpOrders.clientId, clientId), eq4(pnpOrders.id, orderId)));
       if (!order) {
         return res.status(404).json({ message: "Order not found" });
       }
       if (order.status === "DISPATCHED") {
         return res.status(400).json({ message: "Order already dispatched" });
       }
-      const lines = await db.select().from(pnpOrderLines).where(eq4(pnpOrderLines.pnpOrderId, orderId));
+      const lines = await db.select().from(pnpOrderLines).where(and3(eq4(pnpOrderLines.clientId, clientId), eq4(pnpOrderLines.pnpOrderId, orderId)));
       const userId = req.user?.id;
       const transactionDate = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
       const now = /* @__PURE__ */ new Date();
@@ -1829,6 +1924,7 @@ function registerPnpRoutes(router2) {
         if (line.orderedUnits === 0) continue;
         const activeBatches = await db.select().from(batches).where(
           and3(
+            eq4(batches.clientId, clientId),
             eq4(batches.skuCode, line.skuCode),
             eq4(batches.stockLocation, "88"),
             eq4(batches.isActive, true)
@@ -1836,6 +1932,7 @@ function registerPnpRoutes(router2) {
         ).orderBy(asc3(batches.manufactureDate));
         const batchId = activeBatches[0]?.id ?? null;
         await db.insert(stockTransactions).values({
+          clientId,
           batchId,
           skuCode: line.skuCode,
           stockLocation: "88",
@@ -1853,8 +1950,8 @@ function registerPnpRoutes(router2) {
       await db.update(pnpOrders).set({
         status: "DISPATCHED",
         dispatchInstructionSentAt: now
-      }).where(eq4(pnpOrders.id, orderId));
-      const allProducts = await db.select().from(products).where(eq4(products.isActive, true));
+      }).where(and3(eq4(pnpOrders.clientId, clientId), eq4(pnpOrders.id, orderId)));
+      const allProducts = await db.select().from(products).where(and3(eq4(products.clientId, clientId), eq4(products.isActive, true)));
       const productMap = new Map(allProducts.map((p) => [p.skuCode, p]));
       const affectedSkus = [...new Set(lines.map((l) => l.skuCode))];
       const lowStockAlerts = [];
@@ -1863,6 +1960,7 @@ function registerPnpRoutes(router2) {
         if (!product) continue;
         const [stockResult] = await db.select({ totalQty: sum2(stockTransactions.quantity) }).from(stockTransactions).where(
           and3(
+            eq4(stockTransactions.clientId, clientId),
             eq4(stockTransactions.skuCode, sku),
             eq4(stockTransactions.stockLocation, "88")
           )
@@ -1872,6 +1970,7 @@ function registerPnpRoutes(router2) {
         if (currentStock <= reorderPoint && reorderPoint > 0) {
           lowStockAlerts.push(sku);
           await db.insert(notifications).values({
+            clientId,
             type: "LOW_STOCK_88",
             title: `Low 8/8 stock: ${product.productName}`,
             message: `After PnP dispatch, ${product.productName} (${sku}) is at ${currentStock} units at 8/8, below reorder point of ${reorderPoint}.`,
@@ -2154,7 +2253,7 @@ function registerXeroAuthRoutes(router2) {
 // server/openingBalanceImport.ts
 import multer3 from "multer";
 import * as XLSX3 from "xlsx";
-import { eq as eq6 } from "drizzle-orm";
+import { eq as eq6, and as and4 } from "drizzle-orm";
 var upload3 = multer3({ storage: multer3.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 var SKU_MAP = {
   // Horse mixes — direct match with size suffix
@@ -2266,7 +2365,8 @@ function registerOpeningBalanceRoutes(router2) {
           return res.status(400).json({ message: "No file uploaded" });
         }
         const parsed = parseSummarySheet(req.file.buffer);
-        const allProducts = await db.select().from(products).where(eq6(products.isActive, true));
+        const clientId = getClientId(req);
+        const allProducts = await db.select().from(products).where(and4(eq6(products.clientId, clientId), eq6(products.isActive, true)));
         const productMap = new Map(allProducts.map((p) => [p.skuCode, p]));
         const enriched = parsed.map((row) => {
           if (row.skuCode && !productMap.has(row.skuCode)) {
@@ -2305,11 +2405,12 @@ function registerOpeningBalanceRoutes(router2) {
         return res.status(400).json({ message: "rows and asOfDate are required" });
       }
       const userId = req.user?.id;
+      const clientId = getClientId(req);
       const dateObj = new Date(asOfDate);
       const periodMonth = dateObj.getMonth() + 1;
       const periodYear = dateObj.getFullYear();
       const reference = `Opening balance as of ${asOfDate}`;
-      const existing = await db.select().from(stockTransactions).where(eq6(stockTransactions.reference, reference)).limit(1);
+      const existing = await db.select().from(stockTransactions).where(and4(eq6(stockTransactions.clientId, clientId), eq6(stockTransactions.reference, reference))).limit(1);
       if (existing.length > 0) {
         return res.status(409).json({
           message: `Opening balances for ${asOfDate} have already been imported. Delete existing records first to re-import.`
@@ -2320,6 +2421,7 @@ function registerOpeningBalanceRoutes(router2) {
         if (!row.skuCode || !row.matched) continue;
         if (row.thhStock > 0) {
           const [batch] = await db.insert(batches).values({
+            clientId,
             skuCode: row.skuCode,
             sizeVariant: row.size || "opening",
             stockLocation: "THH",
@@ -2333,6 +2435,7 @@ function registerOpeningBalanceRoutes(router2) {
             notes: `Opening balance imported from Animal Farm spreadsheet`
           }).returning();
           await db.insert(stockTransactions).values({
+            clientId,
             batchId: batch.id,
             skuCode: row.skuCode,
             stockLocation: "THH",
@@ -2349,6 +2452,7 @@ function registerOpeningBalanceRoutes(router2) {
         }
         if (row.eightEightStock > 0) {
           const [batch] = await db.insert(batches).values({
+            clientId,
             skuCode: row.skuCode,
             sizeVariant: row.size || "opening",
             stockLocation: "88",
@@ -2362,6 +2466,7 @@ function registerOpeningBalanceRoutes(router2) {
             notes: `Opening balance imported from Animal Farm spreadsheet`
           }).returning();
           await db.insert(stockTransactions).values({
+            clientId,
             batchId: batch.id,
             skuCode: row.skuCode,
             stockLocation: "88",
@@ -2377,14 +2482,15 @@ function registerOpeningBalanceRoutes(router2) {
           created++;
         }
         if (row.reorderPoint !== null && row.reorderPoint > 0) {
-          await db.update(products).set({ reorderPointOverride: row.reorderPoint }).where(eq6(products.skuCode, row.skuCode));
+          await db.update(products).set({ reorderPointOverride: row.reorderPoint }).where(and4(eq6(products.clientId, clientId), eq6(products.skuCode, row.skuCode)));
         }
       }
-      const existingLedgerDate = await db.select().from(systemSettings).where(eq6(systemSettings.key, "ledger_start_date")).limit(1);
+      const existingLedgerDate = await db.select().from(systemSettings).where(and4(eq6(systemSettings.clientId, clientId), eq6(systemSettings.key, "ledger_start_date"))).limit(1);
       if (existingLedgerDate.length > 0) {
-        await db.update(systemSettings).set({ value: asOfDate, updatedAt: /* @__PURE__ */ new Date() }).where(eq6(systemSettings.key, "ledger_start_date"));
+        await db.update(systemSettings).set({ value: asOfDate, updatedAt: /* @__PURE__ */ new Date() }).where(and4(eq6(systemSettings.clientId, clientId), eq6(systemSettings.key, "ledger_start_date")));
       } else {
         await db.insert(systemSettings).values({
+          clientId,
           key: "ledger_start_date",
           value: asOfDate
         });
@@ -2462,7 +2568,8 @@ function registerOpeningBalanceRoutes(router2) {
           parsed = parseSummarySheet(buffer);
         }
       }
-      const allProducts = await db.select().from(products).where(eq6(products.isActive, true));
+      const clientId = getClientId(req);
+      const allProducts = await db.select().from(products).where(and4(eq6(products.clientId, clientId), eq6(products.isActive, true)));
       const productMap = new Map(allProducts.map((p) => [p.skuCode, p]));
       const enriched = parsed.map((row) => {
         if (row.skuCode && !productMap.has(row.skuCode)) {
@@ -2560,6 +2667,7 @@ app.get(
 app.post("/auth/logout", (req, res) => {
   req.logout(() => res.json({ ok: true }));
 });
+app.use(clientContext);
 var router = express.Router();
 registerRoutes(router);
 registerXeroRoutes(router);

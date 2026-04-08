@@ -15,6 +15,7 @@ import {
 import { eq, and, desc, asc, sql, sum } from "drizzle-orm";
 import { logAudit } from "./auditLog";
 import { isAuthenticated } from "./routes";
+import { getClientId } from "./clientContext";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
@@ -62,11 +63,12 @@ export function registerPnpRoutes(router: Router) {
         const rawRows = XLSX.utils.sheet_to_json<any>(sheet);
 
         // Load PnP product mappings
-        const mappings = await db.select().from(pnpProductMappings);
+        const clientId = getClientId(req);
+        const mappings = await db.select().from(pnpProductMappings).where(eq(pnpProductMappings.clientId, clientId));
         const mappingByName = new Map(mappings.map((m) => [m.pnpProductName.toLowerCase(), m.skuCode]));
 
         // Load all active products for substring fallback
-        const allProducts = await db.select().from(products).where(eq(products.isActive, true));
+        const allProducts = await db.select().from(products).where(and(eq(products.clientId, clientId), eq(products.isActive, true)));
 
         interface ParsedLine {
           pnpProductName: string;
@@ -188,11 +190,13 @@ export function registerPnpRoutes(router: Router) {
 
       const { weekEndingDate, appointmentTime, fileName, lines } = parsed.data;
       const userId = (req.user as any)?.id;
+      const clientId = getClientId(req);
 
       // Create the order
       const [order] = await db
         .insert(pnpOrders)
         .values({
+          clientId,
           weekEndingDate,
           appointmentTime: appointmentTime ? new Date(appointmentTime) : null,
           uploadedFileName: fileName ?? null,
@@ -202,7 +206,7 @@ export function registerPnpRoutes(router: Router) {
         .returning();
 
       // Load products for stock check
-      const allProducts = await db.select().from(products).where(eq(products.isActive, true));
+      const allProducts = await db.select().from(products).where(and(eq(products.clientId, clientId), eq(products.isActive, true)));
       const productMap = new Map(allProducts.map((p) => [p.skuCode, p]));
 
       // Get current 8/8 stock for all relevant SKUs
@@ -215,6 +219,7 @@ export function registerPnpRoutes(router: Router) {
         .from(stockTransactions)
         .where(
           and(
+            eq(stockTransactions.clientId, clientId),
             eq(stockTransactions.stockLocation, "88"),
             sql`${stockTransactions.skuCode} = ANY(${skuCodes})`
           )
@@ -251,6 +256,7 @@ export function registerPnpRoutes(router: Router) {
         const [created] = await db
           .insert(pnpOrderLines)
           .values({
+            clientId,
             pnpOrderId: order.id,
             skuCode: line.skuCode,
             dcCode: line.dcCode,
@@ -291,11 +297,13 @@ export function registerPnpRoutes(router: Router) {
   });
 
   // ─── List all PnP orders ───
-  router.get("/api/pnp/orders", isAuthenticated, async (_req, res) => {
+  router.get("/api/pnp/orders", isAuthenticated, async (req, res) => {
     try {
+      const clientId = getClientId(req);
       const orderList = await db
         .select()
         .from(pnpOrders)
+        .where(eq(pnpOrders.clientId, clientId))
         .orderBy(desc(pnpOrders.createdAt));
 
       res.json(orderList);
@@ -313,10 +321,11 @@ export function registerPnpRoutes(router: Router) {
         return res.status(400).json({ message: "Invalid order ID" });
       }
 
+      const clientId = getClientId(req);
       const [order] = await db
         .select()
         .from(pnpOrders)
-        .where(eq(pnpOrders.id, orderId));
+        .where(and(eq(pnpOrders.clientId, clientId), eq(pnpOrders.id, orderId)));
 
       if (!order) {
         return res.status(404).json({ message: "Order not found" });
@@ -325,7 +334,7 @@ export function registerPnpRoutes(router: Router) {
       const lines = await db
         .select()
         .from(pnpOrderLines)
-        .where(eq(pnpOrderLines.pnpOrderId, orderId));
+        .where(and(eq(pnpOrderLines.clientId, clientId), eq(pnpOrderLines.pnpOrderId, orderId)));
 
       // Group by DC
       const byDc: Record<string, typeof lines> = {};
@@ -349,10 +358,11 @@ export function registerPnpRoutes(router: Router) {
         return res.status(400).json({ message: "Invalid order ID" });
       }
 
+      const clientId = getClientId(req);
       const [order] = await db
         .select()
         .from(pnpOrders)
-        .where(eq(pnpOrders.id, orderId));
+        .where(and(eq(pnpOrders.clientId, clientId), eq(pnpOrders.id, orderId)));
 
       if (!order) {
         return res.status(404).json({ message: "Order not found" });
@@ -361,10 +371,10 @@ export function registerPnpRoutes(router: Router) {
       const lines = await db
         .select()
         .from(pnpOrderLines)
-        .where(eq(pnpOrderLines.pnpOrderId, orderId));
+        .where(and(eq(pnpOrderLines.clientId, clientId), eq(pnpOrderLines.pnpOrderId, orderId)));
 
       // Load product names
-      const allProducts = await db.select().from(products).where(eq(products.isActive, true));
+      const allProducts = await db.select().from(products).where(and(eq(products.clientId, clientId), eq(products.isActive, true)));
       const productMap = new Map(allProducts.map((p) => [p.skuCode, p.productName]));
 
       // Format appointment time
@@ -478,10 +488,11 @@ export function registerPnpRoutes(router: Router) {
         return res.status(400).json({ message: "Invalid order ID" });
       }
 
+      const clientId = getClientId(req);
       const [order] = await db
         .select()
         .from(pnpOrders)
-        .where(eq(pnpOrders.id, orderId));
+        .where(and(eq(pnpOrders.clientId, clientId), eq(pnpOrders.id, orderId)));
 
       if (!order) {
         return res.status(404).json({ message: "Order not found" });
@@ -494,7 +505,7 @@ export function registerPnpRoutes(router: Router) {
       const lines = await db
         .select()
         .from(pnpOrderLines)
-        .where(eq(pnpOrderLines.pnpOrderId, orderId));
+        .where(and(eq(pnpOrderLines.clientId, clientId), eq(pnpOrderLines.pnpOrderId, orderId)));
 
       const userId = (req.user as any)?.id;
       const transactionDate = new Date().toISOString().split("T")[0];
@@ -512,6 +523,7 @@ export function registerPnpRoutes(router: Router) {
           .from(batches)
           .where(
             and(
+              eq(batches.clientId, clientId),
               eq(batches.skuCode, line.skuCode),
               eq(batches.stockLocation, "88"),
               eq(batches.isActive, true)
@@ -522,6 +534,7 @@ export function registerPnpRoutes(router: Router) {
         const batchId = activeBatches[0]?.id ?? null;
 
         await db.insert(stockTransactions).values({
+          clientId,
           batchId,
           skuCode: line.skuCode,
           stockLocation: "88",
@@ -543,10 +556,10 @@ export function registerPnpRoutes(router: Router) {
           status: "DISPATCHED",
           dispatchInstructionSentAt: now,
         })
-        .where(eq(pnpOrders.id, orderId));
+        .where(and(eq(pnpOrders.clientId, clientId), eq(pnpOrders.id, orderId)));
 
       // Check if any 8/8 products now below reorder point and create notifications
-      const allProducts = await db.select().from(products).where(eq(products.isActive, true));
+      const allProducts = await db.select().from(products).where(and(eq(products.clientId, clientId), eq(products.isActive, true)));
       const productMap = new Map(allProducts.map((p) => [p.skuCode, p]));
       const affectedSkus = [...new Set(lines.map((l) => l.skuCode))];
       const lowStockAlerts: string[] = [];
@@ -561,6 +574,7 @@ export function registerPnpRoutes(router: Router) {
           .from(stockTransactions)
           .where(
             and(
+              eq(stockTransactions.clientId, clientId),
               eq(stockTransactions.skuCode, sku),
               eq(stockTransactions.stockLocation, "88")
             )
@@ -573,6 +587,7 @@ export function registerPnpRoutes(router: Router) {
           lowStockAlerts.push(sku);
 
           await db.insert(notifications).values({
+            clientId,
             type: "LOW_STOCK_88",
             title: `Low 8/8 stock: ${product.productName}`,
             message: `After PnP dispatch, ${product.productName} (${sku}) is at ${currentStock} units at 8/8, below reorder point of ${reorderPoint}.`,

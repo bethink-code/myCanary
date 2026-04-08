@@ -24,6 +24,7 @@ import {
   orderLines,
 } from "../shared/schema";
 import { eq, sql, and, desc, asc, sum, count, or, isNull, gte, lte } from "drizzle-orm";
+import { getClientId } from "./clientContext";
 
 export function isAuthenticated(req: Request, res: Response, next: NextFunction) {
   if (req.isAuthenticated()) return next();
@@ -167,7 +168,8 @@ export function registerRoutes(router: Router) {
       const { category, brand, location, active } = req.query;
       const isActive = active === "false" ? false : true;
 
-      const conditions: any[] = [eq(products.isActive, isActive)];
+      const clientId = getClientId(req);
+      const conditions: any[] = [eq(products.isActive, isActive), eq(products.clientId, clientId)];
       if (category) conditions.push(eq(products.category, String(category)));
       if (brand) conditions.push(eq(products.brand, String(brand)));
       if (location) conditions.push(eq(products.primaryStockLocation, String(location)));
@@ -207,6 +209,7 @@ export function registerRoutes(router: Router) {
   router.get("/api/products/:skuCode", isAuthenticated, async (req, res) => {
     try {
       const { skuCode } = req.params;
+      const clientId = getClientId(req);
       const result = await db
         .select({
           id: products.id,
@@ -229,7 +232,7 @@ export function registerRoutes(router: Router) {
         })
         .from(products)
         .leftJoin(manufacturers, eq(products.manufacturerId, manufacturers.id))
-        .where(eq(products.skuCode, skuCode))
+        .where(and(eq(products.skuCode, skuCode), eq(products.clientId, clientId)))
         .limit(1);
 
       if (result.length === 0) {
@@ -261,6 +264,7 @@ export function registerRoutes(router: Router) {
   router.patch("/api/products/:skuCode", isAuthenticated, async (req, res) => {
     try {
       const { skuCode } = req.params;
+      const clientId = getClientId(req);
       const parsed = updateProductSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid input", errors: parsed.error.flatten() });
@@ -269,7 +273,7 @@ export function registerRoutes(router: Router) {
       const existing = await db
         .select()
         .from(products)
-        .where(eq(products.skuCode, skuCode))
+        .where(and(eq(products.skuCode, skuCode), eq(products.clientId, clientId)))
         .limit(1);
 
       if (existing.length === 0) {
@@ -279,7 +283,7 @@ export function registerRoutes(router: Router) {
       const updated = await db
         .update(products)
         .set(parsed.data)
-        .where(eq(products.skuCode, skuCode))
+        .where(and(eq(products.skuCode, skuCode), eq(products.clientId, clientId)))
         .returning();
 
       logAudit(req, "PRODUCT_UPDATED", {
@@ -296,9 +300,10 @@ export function registerRoutes(router: Router) {
   });
 
   // ─── Manufacturers: List ─────────────────────────
-  router.get("/api/manufacturers", isAuthenticated, async (_req, res) => {
+  router.get("/api/manufacturers", isAuthenticated, async (req, res) => {
     try {
-      const result = await db.select().from(manufacturers).orderBy(asc(manufacturers.name));
+      const clientId = getClientId(req);
+      const result = await db.select().from(manufacturers).where(eq(manufacturers.clientId, clientId)).orderBy(asc(manufacturers.name));
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ message: "Failed to fetch manufacturers", error: err.message });
@@ -306,15 +311,17 @@ export function registerRoutes(router: Router) {
   });
 
   // ─── Stock: Summary Dashboard ────────────────────
-  router.get("/api/stock/summary", isAuthenticated, async (_req, res) => {
+  router.get("/api/stock/summary", isAuthenticated, async (req, res) => {
     try {
+      const clientId = getClientId(req);
+
       const thhStockSub = db
         .select({
           skuCode: stockTransactions.skuCode,
           total: sum(stockTransactions.quantity).as("thh_total"),
         })
         .from(stockTransactions)
-        .where(eq(stockTransactions.stockLocation, "THH"))
+        .where(and(eq(stockTransactions.stockLocation, "THH"), eq(stockTransactions.clientId, clientId)))
         .groupBy(stockTransactions.skuCode)
         .as("thh_stock");
 
@@ -324,7 +331,7 @@ export function registerRoutes(router: Router) {
           total: sum(stockTransactions.quantity).as("ee_total"),
         })
         .from(stockTransactions)
-        .where(eq(stockTransactions.stockLocation, "88"))
+        .where(and(eq(stockTransactions.stockLocation, "88"), eq(stockTransactions.clientId, clientId)))
         .groupBy(stockTransactions.skuCode)
         .as("ee_stock");
 
@@ -345,7 +352,7 @@ export function registerRoutes(router: Router) {
         .leftJoin(manufacturers, eq(products.manufacturerId, manufacturers.id))
         .leftJoin(thhStockSub, eq(products.skuCode, thhStockSub.skuCode))
         .leftJoin(eeStockSub, eq(products.skuCode, eeStockSub.skuCode))
-        .where(eq(products.isActive, true))
+        .where(and(eq(products.isActive, true), eq(products.clientId, clientId)))
         .orderBy(asc(products.productName));
 
       // Convert string sums to numbers
@@ -366,9 +373,10 @@ export function registerRoutes(router: Router) {
   router.get("/api/stock/transactions/:skuCode", isAuthenticated, async (req, res) => {
     try {
       const { skuCode } = req.params;
+      const clientId = getClientId(req);
       const { location, type, from, to } = req.query;
 
-      const conditions: any[] = [eq(stockTransactions.skuCode, skuCode)];
+      const conditions: any[] = [eq(stockTransactions.skuCode, skuCode), eq(stockTransactions.clientId, clientId)];
       if (location) conditions.push(eq(stockTransactions.stockLocation, String(location)));
       if (type) conditions.push(eq(stockTransactions.transactionType, String(type)));
       if (from) conditions.push(gte(stockTransactions.transactionDate, String(from)));
@@ -390,9 +398,10 @@ export function registerRoutes(router: Router) {
   router.get("/api/batches/:skuCode", isAuthenticated, async (req, res) => {
     try {
       const { skuCode } = req.params;
+      const clientId = getClientId(req);
       const { location } = req.query;
 
-      const conditions: any[] = [eq(batches.skuCode, skuCode)];
+      const conditions: any[] = [eq(batches.skuCode, skuCode), eq(batches.clientId, clientId)];
       if (location) conditions.push(eq(batches.stockLocation, String(location)));
 
       const result = await db
@@ -430,12 +439,14 @@ export function registerRoutes(router: Router) {
 
       const data = parsed.data;
       const user = req.user as any;
+      const clientId = getClientId(req);
       const receivedDate = new Date(data.receivedDate);
 
       // Create the batch
       const [newBatch] = await db
         .insert(batches)
         .values({
+          clientId,
           skuCode: data.skuCode,
           sizeVariant: data.sizeVariant,
           stockLocation: data.stockLocation,
@@ -453,6 +464,7 @@ export function registerRoutes(router: Router) {
       const [txn] = await db
         .insert(stockTransactions)
         .values({
+          clientId,
           batchId: newBatch.id,
           skuCode: data.skuCode,
           stockLocation: data.stockLocation,
@@ -498,11 +510,13 @@ export function registerRoutes(router: Router) {
 
       const data = parsed.data;
       const user = req.user as any;
+      const clientId = getClientId(req);
       const now = new Date();
 
       const [txn] = await db
         .insert(stockTransactions)
         .values({
+          clientId,
           batchId: data.batchId || null,
           skuCode: data.skuCode,
           stockLocation: data.stockLocation,
@@ -530,8 +544,10 @@ export function registerRoutes(router: Router) {
   });
 
   // ─── Stock: Reorder Check ────────────────────────
-  router.get("/api/stock/reorder-check", isAuthenticated, async (_req, res) => {
+  router.get("/api/stock/reorder-check", isAuthenticated, async (req, res) => {
     try {
+      const clientId = getClientId(req);
+
       // Get all active products with manufacturer info
       const activeProducts = await db
         .select({
@@ -544,7 +560,7 @@ export function registerRoutes(router: Router) {
         })
         .from(products)
         .leftJoin(manufacturers, eq(products.manufacturerId, manufacturers.id))
-        .where(eq(products.isActive, true));
+        .where(and(eq(products.isActive, true), eq(products.clientId, clientId)));
 
       // Get current stock per SKU per location
       const stockBySku = await db
@@ -554,6 +570,7 @@ export function registerRoutes(router: Router) {
           total: sum(stockTransactions.quantity).as("total"),
         })
         .from(stockTransactions)
+        .where(eq(stockTransactions.clientId, clientId))
         .groupBy(stockTransactions.skuCode, stockTransactions.stockLocation);
 
       // Build stock lookup: { skuCode: { location: total } }
@@ -575,7 +592,7 @@ export function registerRoutes(router: Router) {
           totalOut: sql<string>`COALESCE(ABS(SUM(CASE WHEN ${stockTransactions.transactionType} IN ('SALES_OUT', 'PNP_OUT') THEN ${stockTransactions.quantity} ELSE 0 END)), 0)`.as("total_out"),
         })
         .from(stockTransactions)
-        .where(gte(stockTransactions.transactionDate, oneYearAgoStr))
+        .where(and(gte(stockTransactions.transactionDate, oneYearAgoStr), eq(stockTransactions.clientId, clientId)))
         .groupBy(stockTransactions.skuCode);
 
       const salesMap: Record<string, number> = {};
@@ -651,12 +668,13 @@ export function registerRoutes(router: Router) {
 
       const { skuCode, cases } = parsed.data;
       const user = req.user as any;
+      const clientId = getClientId(req);
 
       // Look up the product to get units_per_case
       const [product] = await db
         .select()
         .from(products)
-        .where(eq(products.skuCode, skuCode))
+        .where(and(eq(products.skuCode, skuCode), eq(products.clientId, clientId)))
         .limit(1);
 
       if (!product) {
@@ -675,6 +693,7 @@ export function registerRoutes(router: Router) {
       const [thhTxn] = await db
         .insert(stockTransactions)
         .values({
+          clientId,
           skuCode,
           stockLocation: "THH",
           transactionType: "TRANSFER_THH_TO_88",
@@ -690,6 +709,7 @@ export function registerRoutes(router: Router) {
       const [eeTxn] = await db
         .insert(stockTransactions)
         .values({
+          clientId,
           skuCode,
           stockLocation: "88",
           transactionType: "TRANSFER_THH_TO_88",
@@ -719,14 +739,18 @@ export function registerRoutes(router: Router) {
   router.get("/api/notifications", isAuthenticated, async (req, res) => {
     try {
       const user = req.user as any;
+      const clientId = getClientId(req);
 
       const result = await db
         .select()
         .from(notifications)
         .where(
-          or(
-            eq(notifications.userId, user.id),
-            isNull(notifications.userId),
+          and(
+            eq(notifications.clientId, clientId),
+            or(
+              eq(notifications.userId, user.id),
+              isNull(notifications.userId),
+            )
           )
         )
         .orderBy(desc(notifications.createdAt))
@@ -742,11 +766,12 @@ export function registerRoutes(router: Router) {
   router.post("/api/notifications/:id/read", isAuthenticated, async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
+      const clientId = getClientId(req);
 
       const [updated] = await db
         .update(notifications)
         .set({ isRead: true })
-        .where(eq(notifications.id, id))
+        .where(and(eq(notifications.id, id), eq(notifications.clientId, clientId)))
         .returning();
 
       if (!updated) {
@@ -767,15 +792,16 @@ export function registerRoutes(router: Router) {
   router.get("/api/orders", isAuthenticated, async (req, res) => {
     try {
       const { status, channel } = req.query;
+      const clientId = getClientId(req);
 
-      const conditions: any[] = [];
+      const conditions: any[] = [eq(orders.clientId, clientId)];
       if (status) conditions.push(eq(orders.status, String(status)));
       if (channel) conditions.push(eq(orders.salesChannel, String(channel)));
 
       const result = await db
         .select()
         .from(orders)
-        .where(conditions.length > 0 ? and(...conditions) : undefined)
+        .where(and(...conditions))
         .orderBy(desc(orders.createdAt));
 
       res.json(result);
@@ -788,11 +814,12 @@ export function registerRoutes(router: Router) {
   router.get("/api/orders/:id", isAuthenticated, async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
+      const clientId = getClientId(req);
 
       const [order] = await db
         .select()
         .from(orders)
-        .where(eq(orders.id, id))
+        .where(and(eq(orders.id, id), eq(orders.clientId, clientId)))
         .limit(1);
 
       if (!order) {
@@ -812,7 +839,7 @@ export function registerRoutes(router: Router) {
         })
         .from(orderLines)
         .leftJoin(products, eq(orderLines.skuCode, products.skuCode))
-        .where(eq(orderLines.orderId, id));
+        .where(and(eq(orderLines.orderId, id), eq(orderLines.clientId, clientId)));
 
       res.json({ ...order, lines });
     } catch (err: any) {
@@ -852,6 +879,7 @@ export function registerRoutes(router: Router) {
 
       const data = parsed.data;
       const user = req.user as any;
+      const clientId = getClientId(req);
 
       // Check THH stock availability for each line
       const lineDetails = await Promise.all(
@@ -864,7 +892,8 @@ export function registerRoutes(router: Router) {
             .where(
               and(
                 eq(stockTransactions.skuCode, line.skuCode),
-                eq(stockTransactions.stockLocation, "THH")
+                eq(stockTransactions.stockLocation, "THH"),
+                eq(stockTransactions.clientId, clientId)
               )
             );
 
@@ -886,6 +915,7 @@ export function registerRoutes(router: Router) {
       const [newOrder] = await db
         .insert(orders)
         .values({
+          clientId,
           orderDate: data.orderDate,
           customerName: data.customerName,
           customerEmail: data.customerEmail || null,
@@ -909,6 +939,7 @@ export function registerRoutes(router: Router) {
           const [created] = await db
             .insert(orderLines)
             .values({
+              clientId,
               orderId: newOrder.id,
               skuCode: line.skuCode,
               sizeVariant: line.sizeVariant,
@@ -948,6 +979,7 @@ export function registerRoutes(router: Router) {
   router.patch("/api/orders/:id/status", isAuthenticated, async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
+      const clientId = getClientId(req);
       const parsed = updateOrderStatusSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid input", errors: parsed.error.flatten() });
@@ -958,7 +990,7 @@ export function registerRoutes(router: Router) {
       const [order] = await db
         .select()
         .from(orders)
-        .where(eq(orders.id, id))
+        .where(and(eq(orders.id, id), eq(orders.clientId, clientId)))
         .limit(1);
 
       if (!order) {
@@ -982,7 +1014,7 @@ export function registerRoutes(router: Router) {
         const lines = await db
           .select()
           .from(orderLines)
-          .where(eq(orderLines.orderId, id));
+          .where(and(eq(orderLines.orderId, id), eq(orderLines.clientId, clientId)));
 
         const user = req.user as any;
         const now = new Date();
@@ -992,6 +1024,7 @@ export function registerRoutes(router: Router) {
           await db
             .insert(stockTransactions)
             .values({
+              clientId,
               skuCode: line.skuCode,
               stockLocation: "THH",
               transactionType: "SALES_OUT",
@@ -1009,7 +1042,7 @@ export function registerRoutes(router: Router) {
       const [updated] = await db
         .update(orders)
         .set(updateFields)
-        .where(eq(orders.id, id))
+        .where(and(eq(orders.id, id), eq(orders.clientId, clientId)))
         .returning();
 
       logAudit(req, "ORDER_STATUS_UPDATED", {
@@ -1036,6 +1069,7 @@ export function registerRoutes(router: Router) {
   router.patch("/api/orders/:id", isAuthenticated, async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
+      const clientId = getClientId(req);
       const parsed = updateOrderFieldsSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid input", errors: parsed.error.flatten() });
@@ -1044,7 +1078,7 @@ export function registerRoutes(router: Router) {
       const [existing] = await db
         .select()
         .from(orders)
-        .where(eq(orders.id, id))
+        .where(and(eq(orders.id, id), eq(orders.clientId, clientId)))
         .limit(1);
 
       if (!existing) {
@@ -1054,7 +1088,7 @@ export function registerRoutes(router: Router) {
       const [updated] = await db
         .update(orders)
         .set(parsed.data)
-        .where(eq(orders.id, id))
+        .where(and(eq(orders.id, id), eq(orders.clientId, clientId)))
         .returning();
 
       logAudit(req, "ORDER_UPDATED", {
@@ -1075,11 +1109,12 @@ export function registerRoutes(router: Router) {
   router.get("/api/orders/:id/invoice-data", isAuthenticated, async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
+      const clientId = getClientId(req);
 
       const [order] = await db
         .select()
         .from(orders)
-        .where(eq(orders.id, id))
+        .where(and(eq(orders.id, id), eq(orders.clientId, clientId)))
         .limit(1);
 
       if (!order) {
@@ -1095,7 +1130,7 @@ export function registerRoutes(router: Router) {
         })
         .from(orderLines)
         .leftJoin(products, eq(orderLines.skuCode, products.skuCode))
-        .where(eq(orderLines.orderId, id));
+        .where(and(eq(orderLines.orderId, id), eq(orderLines.clientId, clientId)));
 
       res.json({
         invoiceDate: order.orderDate,
@@ -1119,11 +1154,12 @@ export function registerRoutes(router: Router) {
   router.get("/api/orders/:id/courier-data", isAuthenticated, async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
+      const clientId = getClientId(req);
 
       const [order] = await db
         .select()
         .from(orders)
-        .where(eq(orders.id, id))
+        .where(and(eq(orders.id, id), eq(orders.clientId, clientId)))
         .limit(1);
 
       if (!order) {
