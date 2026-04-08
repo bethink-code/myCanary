@@ -573,6 +573,28 @@ export default function XeroImport() {
                 )}
               </div>
 
+              {/* Month presets */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  Quick Select Month
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {monthPresets.map((p) => (
+                    <button
+                      key={p.from}
+                      onClick={() => applyPreset(p.from, p.to)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                        fromDate === p.from && toDate === p.to
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               {/* Period selection */}
               <div className="flex gap-4">
                 <div className="flex-1">

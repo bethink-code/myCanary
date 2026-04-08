@@ -32,23 +32,18 @@ interface SnapshotProduct {
 }
 
 interface SnapshotOverview {
-  products: SnapshotProduct[];
-  summary: {
-    total: number;
-    ok: number;
-    approaching: number;
-    reorder: number;
-    noData: number;
-  };
+  items: SnapshotProduct[];
+  overallStatus: "ALL_GOOD" | "HEADS_UP" | "ACTION_NEEDED";
 }
 
 interface RhythmData {
   lastPnpUpload: string | null;
   lastXeroImport: string | null;
   pendingDeliveries: {
-    manufacturerName: string;
-    expectedDate: string;
-    poId: number;
+    manufacturer: string;
+    expectedDeliveryDate: string | null;
+    status: string;
+    daysUntilDelivery: number | null;
   }[];
 }
 
@@ -67,18 +62,20 @@ const STATUS_ORDER: Record<string, number> = {
 
 /* ---------- sub-components ---------- */
 
-function StatusLine({ summary }: { summary: SnapshotOverview["summary"] }) {
-  if (summary.reorder > 0) {
+function StatusLine({ overallStatus, items }: { overallStatus: SnapshotOverview["overallStatus"]; items: SnapshotProduct[] }) {
+  if (overallStatus === "ACTION_NEEDED") {
+    const count = items.filter((p) => p.status === "REORDER").length;
     return (
       <div className="rounded-xl px-5 py-3 bg-stock-out-bg border border-red-200 text-stock-out text-sm font-medium">
-        {summary.reorder} product{summary.reorder !== 1 ? "s" : ""} at or below reorder point. Decisions needed today.
+        {count} product{count !== 1 ? "s" : ""} at or below reorder point. Decisions needed today.
       </div>
     );
   }
-  if (summary.approaching > 0) {
+  if (overallStatus === "HEADS_UP") {
+    const count = items.filter((p) => p.status === "APPROACHING").length;
     return (
       <div className="rounded-xl px-5 py-3 bg-warning-bg border border-amber-200 text-warning text-sm font-medium">
-        {summary.approaching} product{summary.approaching !== 1 ? "s" : ""} approaching reorder point.
+        {count} product{count !== 1 ? "s" : ""} approaching reorder point.
       </div>
     );
   }
@@ -478,14 +475,13 @@ function RhythmPrompts({ rhythm }: { rhythm: RhythmData | undefined }) {
 
   // Pending deliveries within 5 days
   const soon = rhythm.pendingDeliveries.filter((d) => {
-    const days = daysFromNow(d.expectedDate);
-    return days != null && days >= 0 && days <= 5;
+    return d.daysUntilDelivery != null && d.daysUntilDelivery >= 0 && d.daysUntilDelivery <= 5;
   });
-  soon.forEach((d) => {
+  soon.forEach((d, i) => {
     prompts.push(
-      <div key={`delivery-${d.poId}`} className="rounded-xl border border-blue-200 bg-info-bg p-4 flex items-center justify-between gap-4">
+      <div key={`delivery-${i}`} className="rounded-xl border border-blue-200 bg-info-bg p-4 flex items-center justify-between gap-4">
         <p className="text-sm text-info font-medium">
-          {d.manufacturerName} delivery expected by {formatDateShort(d.expectedDate)} — not yet recorded.
+          {d.manufacturer} delivery expected by {formatDateShort(d.expectedDeliveryDate)} — not yet recorded.
         </p>
         <Link
           to="/stock/delivery"
@@ -539,7 +535,7 @@ export default function Snapshot() {
   const suppliers = useMemo(() => {
     if (!overview) return [];
     const set = new Set<string>();
-    overview.products.forEach((p) => {
+    overview.items.forEach((p) => {
       if (p.manufacturerName) set.add(p.manufacturerName);
     });
     return Array.from(set).sort();
@@ -548,7 +544,7 @@ export default function Snapshot() {
   // Filter products
   const filtered = useMemo(() => {
     if (!overview) return [];
-    let list = overview.products;
+    let list = overview.items;
 
     const filters = activeFilters;
 
@@ -644,12 +640,13 @@ export default function Snapshot() {
     return <LoadingOverlay message="Loading snapshot..." />;
   }
 
-  const summary = overview?.summary ?? { total: 0, ok: 0, approaching: 0, reorder: 0, noData: 0 };
+  const items = overview?.items ?? [];
+  const overallStatus = overview?.overallStatus ?? "ALL_GOOD";
 
   return (
     <div className="space-y-6">
       {/* Status Line */}
-      <StatusLine summary={summary} />
+      <StatusLine overallStatus={overallStatus} items={items} />
 
       {/* Time Window + Lens */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
