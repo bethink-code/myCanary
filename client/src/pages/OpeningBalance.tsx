@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "../lib/queryClient";
+import { invalidateStockData } from "../lib/invalidation";
 import { Link, useNavigate } from "react-router-dom";
 import LoadingOverlay from "../components/LoadingOverlay";
 import StickyActionBar from "../components/StickyActionBar";
@@ -89,10 +90,7 @@ export default function OpeningBalance() {
     },
     onSuccess: (data: any) => {
       setCommitCount(data.created);
-      qc.invalidateQueries({ queryKey: ["stock-summary"] });
-      qc.invalidateQueries({ queryKey: ["products"] });
-      qc.invalidateQueries({ queryKey: ["snapshot-overview"] });
-      qc.invalidateQueries({ queryKey: ["ledger-date"] });
+      invalidateStockData(qc);
       setStep(3);
     },
   });

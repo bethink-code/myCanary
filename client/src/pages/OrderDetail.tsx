@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "../lib/queryClient";
+import { invalidateOrderData } from "../lib/invalidation";
 import StickyActionBar from "../components/StickyActionBar";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -136,8 +137,7 @@ export default function OrderDetail() {
         body: JSON.stringify(payload),
       }),
     onSuccess: (data: any) => {
-      queryClient.invalidateQueries({ queryKey: ["orders"] });
-      queryClient.invalidateQueries({ queryKey: ["snapshot-overview"] });
+      invalidateOrderData(queryClient);
       navigate(`/orders/${data.id}`);
     },
   });
@@ -168,8 +168,7 @@ export default function OrderDetail() {
       apiRequest(`/api/orders/${id}/status`, { method: "PATCH" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["order", id] });
-      queryClient.invalidateQueries({ queryKey: ["orders"] });
-      queryClient.invalidateQueries({ queryKey: ["snapshot-overview"] });
+      invalidateOrderData(queryClient);
     },
   });
 

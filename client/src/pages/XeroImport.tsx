@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "../lib/queryClient";
+import { invalidateStockData } from "../lib/invalidation";
 import { Link } from "react-router-dom";
 import LoadingOverlay from "../components/LoadingOverlay";
 import StickyActionBar from "../components/StickyActionBar";
@@ -226,9 +227,7 @@ export default function XeroImport() {
     onSuccess: (data) => {
       setCommitCount(data.transactionsCreated);
       qc.invalidateQueries({ queryKey: ["xero-import-history"] });
-      qc.invalidateQueries({ queryKey: ["stock-summary"] });
-      qc.invalidateQueries({ queryKey: ["snapshot-overview"] });
-      qc.invalidateQueries({ queryKey: ["snapshot-rhythm"] });
+      invalidateStockData(qc);
       setStep(3);
     },
   });

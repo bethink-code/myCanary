@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "../lib/queryClient";
+import { invalidateStockData } from "../lib/invalidation";
 import { Link } from "react-router-dom";
 import StickyActionBar from "../components/StickyActionBar";
 
@@ -209,9 +210,7 @@ export default function PnpWeekly() {
     },
     onSuccess: (data) => {
       setDispatchResult(data);
-      qc.invalidateQueries({ queryKey: ["stock-summary"] });
-      qc.invalidateQueries({ queryKey: ["snapshot-overview"] });
-      qc.invalidateQueries({ queryKey: ["snapshot-rhythm"] });
+      invalidateStockData(qc);
       setStep(5);
     },
   });

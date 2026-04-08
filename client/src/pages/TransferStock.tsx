@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "../lib/queryClient";
+import { invalidateStockData } from "../lib/invalidation";
 import { Link } from "react-router-dom";
 import StickyActionBar from "../components/StickyActionBar";
 
@@ -47,8 +48,7 @@ export default function TransferStock() {
       setSelectedSku("");
       setCases(0);
       setError("");
-      qc.invalidateQueries({ queryKey: ["stock-summary"] });
-      qc.invalidateQueries({ queryKey: ["snapshot-overview"] });
+      invalidateStockData(qc);
     },
     onError: (err: any) => {
       setError(err.message ?? "Transfer failed.");

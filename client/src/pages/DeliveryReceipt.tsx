@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "../lib/queryClient";
+import { invalidateStockData } from "../lib/invalidation";
 import { Link, useNavigate } from "react-router-dom";
 import StickyActionBar from "../components/StickyActionBar";
 
@@ -99,8 +100,7 @@ export default function DeliveryReceipt() {
         });
       }
 
-      qc.invalidateQueries({ queryKey: ["stock-summary"] });
-      qc.invalidateQueries({ queryKey: ["snapshot-overview"] });
+      invalidateStockData(qc);
       qc.invalidateQueries({ queryKey: ["batches"] });
       navigate("/stock");
     } catch (err: any) {
