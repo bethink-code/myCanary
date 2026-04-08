@@ -317,6 +317,7 @@ export default function App() {
 }
 
 function SetupGate() {
+  const location = useLocation();
   const { data: setupStatus, isLoading } = useQuery<{ setupComplete: boolean }>({
     queryKey: ["setup-status"],
     queryFn: () => apiRequest("/api/setup/status"),
@@ -331,7 +332,9 @@ function SetupGate() {
     );
   }
 
-  if (setupStatus && !setupStatus.setupComplete) {
+  // If setup incomplete and user is on the home page, show the journey.
+  // If they navigate to a specific page (via setup links), let them through.
+  if (setupStatus && !setupStatus.setupComplete && location.pathname === "/") {
     return <SetupJourney />;
   }
 
