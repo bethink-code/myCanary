@@ -285,9 +285,20 @@ function EditProductModal({
 }
 
 function ManufacturersTab() {
+  const qc = useQueryClient();
   const { data: manufacturers = [] } = useQuery<any[]>({
     queryKey: ["manufacturers"],
     queryFn: () => apiRequest("/api/manufacturers"),
+  });
+  const [editing, setEditing] = useState<any>(null);
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, updates }: { id: number; updates: any }) =>
+      apiRequest(`/api/manufacturers/${id}`, { method: "PATCH", body: JSON.stringify(updates) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["manufacturers"] });
+      setEditing(null);
+    },
   });
 
   return (
@@ -298,26 +309,125 @@ function ManufacturersTab() {
             <th className="text-left px-4 py-3 font-medium text-slate-600">Name</th>
             <th className="text-left px-4 py-3 font-medium text-slate-600">Email</th>
             <th className="text-left px-4 py-3 font-medium text-slate-600">Contact</th>
-            <th className="text-right px-4 py-3 font-medium text-slate-600">
-              Lead Time (days)
-            </th>
-            <th className="text-right px-4 py-3 font-medium text-slate-600">
-              Max Lead Time
-            </th>
+            <th className="text-right px-4 py-3 font-medium text-slate-600">Lead Time (days)</th>
+            <th className="text-right px-4 py-3 font-medium text-slate-600">Max Lead Time</th>
+            <th className="px-4 py-3"></th>
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
           {manufacturers.map((m: any) => (
-            <tr key={m.id}>
+            <tr key={m.id} className="hover:bg-slate-50">
               <td className="px-4 py-3 font-medium">{m.name}</td>
-              <td className="px-4 py-3">{m.email ?? <span className="text-slate-400">Not set</span>}</td>
+              <td className="px-4 py-3">{m.email ?? <span className="text-amber-600">Not set</span>}</td>
               <td className="px-4 py-3">{m.contactPerson ?? "—"}</td>
               <td className="px-4 py-3 text-right">{m.standardLeadTimeDays}</td>
               <td className="px-4 py-3 text-right">{m.maxLeadTimeDays}</td>
+              <td className="px-4 py-3 text-right">
+                <button onClick={() => setEditing(m)} className="text-xs text-primary hover:underline">Edit</button>
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
+
+      {editing && (
+        <EditManufacturerModal
+          manufacturer={editing}
+          onSave={(updates) => updateMutation.mutate({ id: editing.id, updates })}
+          onClose={() => setEditing(null)}
+          saving={updateMutation.isPending}
+        />
+      )}
+    </div>
+  );
+}
+
+function EditManufacturerModal({
+  manufacturer,
+  onSave,
+  onClose,
+  saving,
+}: {
+  manufacturer: any;
+  onSave: (updates: any) => void;
+  onClose: () => void;
+  saving: boolean;
+}) {
+  const [form, setForm] = useState({
+    name: manufacturer.name ?? "",
+    email: manufacturer.email ?? "",
+    contactPerson: manufacturer.contactPerson ?? "",
+    phone: manufacturer.phone ?? "",
+    standardLeadTimeDays: manufacturer.standardLeadTimeDays ?? 40,
+    maxLeadTimeDays: manufacturer.maxLeadTimeDays ?? 60,
+    poFormatNotes: manufacturer.poFormatNotes ?? "",
+    moqNotes: manufacturer.moqNotes ?? "",
+  });
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-xl p-6 max-w-lg w-full mx-4 space-y-4">
+        <h2 className="text-lg font-bold text-slate-900">Edit {manufacturer.name}</h2>
+
+        <div className="space-y-3">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Name</label>
+            <input type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
+              className="w-full px-3 py-2 border border-border rounded-lg text-sm" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
+            <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })}
+              placeholder="manufacturer@example.com"
+              className="w-full px-3 py-2 border border-border rounded-lg text-sm" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Contact Person</label>
+            <input type="text" value={form.contactPerson} onChange={(e) => setForm({ ...form, contactPerson: e.target.value })}
+              className="w-full px-3 py-2 border border-border rounded-lg text-sm" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Phone</label>
+            <input type="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })}
+              className="w-full px-3 py-2 border border-border rounded-lg text-sm" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Lead Time (days)</label>
+              <input type="number" value={form.standardLeadTimeDays} onChange={(e) => setForm({ ...form, standardLeadTimeDays: Number(e.target.value) })}
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Max Lead Time (days)</label>
+              <input type="number" value={form.maxLeadTimeDays} onChange={(e) => setForm({ ...form, maxLeadTimeDays: Number(e.target.value) })}
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">PO Format Notes</label>
+            <textarea value={form.poFormatNotes} onChange={(e) => setForm({ ...form, poFormatNotes: e.target.value })}
+              rows={2} placeholder="Any special instructions for purchase orders"
+              className="w-full px-3 py-2 border border-border rounded-lg text-sm" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">MOQ Notes</label>
+            <textarea value={form.moqNotes} onChange={(e) => setForm({ ...form, moqNotes: e.target.value })}
+              rows={2} placeholder="Minimum order quantities or batch requirements"
+              className="w-full px-3 py-2 border border-border rounded-lg text-sm" />
+          </div>
+        </div>
+
+        <div className="flex gap-3 pt-2">
+          <button onClick={() => onSave(form)} disabled={saving}
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50">
+            {saving ? "Saving..." : "Save Changes"}
+          </button>
+          <button onClick={onClose} disabled={saving}
+            className="px-4 py-2 border border-border text-slate-700 rounded-lg text-sm hover:bg-slate-50 disabled:opacity-50">
+            Cancel
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -317,6 +317,41 @@ export function registerRoutes(router: Router) {
     }
   });
 
+  router.patch("/api/manufacturers/:id", isAuthenticated, async (req, res) => {
+    try {
+      const clientId = getClientId(req);
+      const id = Number(req.params.id);
+      const { name, email, contactPerson, phone, standardLeadTimeDays, maxLeadTimeDays, poFormatNotes, moqNotes } = req.body;
+
+      const [updated] = await db
+        .update(manufacturers)
+        .set({
+          ...(name !== undefined && { name }),
+          ...(email !== undefined && { email }),
+          ...(contactPerson !== undefined && { contactPerson }),
+          ...(phone !== undefined && { phone }),
+          ...(standardLeadTimeDays !== undefined && { standardLeadTimeDays: Number(standardLeadTimeDays) }),
+          ...(maxLeadTimeDays !== undefined && { maxLeadTimeDays: Number(maxLeadTimeDays) }),
+          ...(poFormatNotes !== undefined && { poFormatNotes }),
+          ...(moqNotes !== undefined && { moqNotes }),
+        })
+        .where(and(eq(manufacturers.clientId, clientId), eq(manufacturers.id, id)))
+        .returning();
+
+      if (!updated) return res.status(404).json({ message: "Manufacturer not found" });
+
+      logAudit(req, "MANUFACTURER_UPDATED", {
+        resourceType: "Manufacturer",
+        resourceId: String(id),
+        detail: `Updated manufacturer: ${updated.name}`,
+      });
+
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ message: "Failed to update manufacturer", error: err.message });
+    }
+  });
+
   // ─── Stock: Summary Dashboard ────────────────────
   router.get("/api/stock/summary", isAuthenticated, async (req, res) => {
     try {

@@ -770,6 +770,32 @@ function registerRoutes(router2) {
       res.status(500).json({ message: "Failed to fetch manufacturers", error: err.message });
     }
   });
+  router2.patch("/api/manufacturers/:id", isAuthenticated, async (req, res) => {
+    try {
+      const clientId = getClientId(req);
+      const id = Number(req.params.id);
+      const { name, email, contactPerson, phone, standardLeadTimeDays, maxLeadTimeDays, poFormatNotes, moqNotes } = req.body;
+      const [updated] = await db.update(manufacturers).set({
+        ...name !== void 0 && { name },
+        ...email !== void 0 && { email },
+        ...contactPerson !== void 0 && { contactPerson },
+        ...phone !== void 0 && { phone },
+        ...standardLeadTimeDays !== void 0 && { standardLeadTimeDays: Number(standardLeadTimeDays) },
+        ...maxLeadTimeDays !== void 0 && { maxLeadTimeDays: Number(maxLeadTimeDays) },
+        ...poFormatNotes !== void 0 && { poFormatNotes },
+        ...moqNotes !== void 0 && { moqNotes }
+      }).where(and(eq2(manufacturers.clientId, clientId), eq2(manufacturers.id, id))).returning();
+      if (!updated) return res.status(404).json({ message: "Manufacturer not found" });
+      logAudit(req, "MANUFACTURER_UPDATED", {
+        resourceType: "Manufacturer",
+        resourceId: String(id),
+        detail: `Updated manufacturer: ${updated.name}`
+      });
+      res.json(updated);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to update manufacturer", error: err.message });
+    }
+  });
   router2.get("/api/stock/summary", isAuthenticated, async (req, res) => {
     try {
       const clientId = getClientId(req);
