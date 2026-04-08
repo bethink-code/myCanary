@@ -2135,7 +2135,7 @@ function registerPnpRoutes(router2) {
 }
 
 // server/xeroAuth.ts
-import { eq as eq5 } from "drizzle-orm";
+import { eq as eq5, and as and4 } from "drizzle-orm";
 var XERO_AUTH_URL = "https://login.xero.com/identity/connect/authorize";
 var XERO_TOKEN_URL = "https://identity.xero.com/connect/token";
 var XERO_API_BASE = "https://api.xero.com";
@@ -2143,8 +2143,8 @@ var XERO_SCOPES = "openid profile email offline_access accounting.invoices.read 
 function getXeroRedirectUri() {
   return process.env.NODE_ENV === "production" ? `${process.env.PRODUCTION_URL}/auth/xero/callback` : "http://localhost:5000/auth/xero/callback";
 }
-async function getXeroTokens() {
-  const result = await db.select().from(systemSettings).where(eq5(systemSettings.key, "xero_tokens"));
+async function getXeroTokens(clientId) {
+  const result = await db.select().from(systemSettings).where(and4(eq5(systemSettings.clientId, clientId), eq5(systemSettings.key, "xero_tokens")));
   if (result.length === 0 || !result[0].value) return null;
   try {
     return JSON.parse(result[0].value);
@@ -2152,13 +2152,13 @@ async function getXeroTokens() {
     return null;
   }
 }
-async function saveXeroTokens(tokens) {
-  const existing = await db.select().from(systemSettings).where(eq5(systemSettings.key, "xero_tokens"));
+async function saveXeroTokens(clientId, tokens) {
+  const existing = await db.select().from(systemSettings).where(and4(eq5(systemSettings.clientId, clientId), eq5(systemSettings.key, "xero_tokens")));
   const value = JSON.stringify(tokens);
   if (existing.length > 0) {
-    await db.update(systemSettings).set({ value, updatedAt: /* @__PURE__ */ new Date() }).where(eq5(systemSettings.key, "xero_tokens"));
+    await db.update(systemSettings).set({ value, updatedAt: /* @__PURE__ */ new Date() }).where(and4(eq5(systemSettings.clientId, clientId), eq5(systemSettings.key, "xero_tokens")));
   } else {
-    await db.insert(systemSettings).values({ key: "xero_tokens", value });
+    await db.insert(systemSettings).values({ clientId, key: "xero_tokens", value });
   }
 }
 async function refreshAccessToken(refreshToken) {
@@ -2181,8 +2181,8 @@ async function refreshAccessToken(refreshToken) {
   }
   return res.json();
 }
-async function getValidAccessToken() {
-  const tokens = await getXeroTokens();
+async function getValidAccessToken(clientId) {
+  const tokens = await getXeroTokens(clientId);
   if (!tokens) return null;
   if (Date.now() > tokens.expiresAt - 5 * 60 * 1e3) {
     const refreshed = await refreshAccessToken(tokens.refreshToken);
@@ -2193,7 +2193,7 @@ async function getValidAccessToken() {
       expiresAt: Date.now() + refreshed.expires_in * 1e3,
       tenantId: tokens.tenantId
     };
-    await saveXeroTokens(newTokens);
+    await saveXeroTokens(clientId, newTokens);
     return { accessToken: newTokens.accessToken, tenantId: newTokens.tenantId };
   }
   return { accessToken: tokens.accessToken, tenantId: tokens.tenantId };
@@ -2245,17 +2245,18 @@ function registerXeroAuthRoutes(router2) {
       }
       const tenantId = connections[0].tenantId;
       const tenantName = connections[0].tenantName;
-      await saveXeroTokens({
+      const clientId = getClientId(req);
+      await saveXeroTokens(clientId, {
         accessToken: tokenData.access_token,
         refreshToken: tokenData.refresh_token,
         expiresAt: Date.now() + tokenData.expires_in * 1e3,
         tenantId
       });
-      const existing = await db.select().from(systemSettings).where(eq5(systemSettings.key, "xero_org_name"));
+      const existing = await db.select().from(systemSettings).where(and4(eq5(systemSettings.clientId, clientId), eq5(systemSettings.key, "xero_org_name")));
       if (existing.length > 0) {
-        await db.update(systemSettings).set({ value: tenantName, updatedAt: /* @__PURE__ */ new Date() }).where(eq5(systemSettings.key, "xero_org_name"));
+        await db.update(systemSettings).set({ value: tenantName, updatedAt: /* @__PURE__ */ new Date() }).where(and4(eq5(systemSettings.clientId, clientId), eq5(systemSettings.key, "xero_org_name")));
       } else {
-        await db.insert(systemSettings).values({ key: "xero_org_name", value: tenantName });
+        await db.insert(systemSettings).values({ clientId, key: "xero_org_name", value: tenantName });
       }
       res.redirect(`${clientUrl}/settings?xero=connected&org=${encodeURIComponent(tenantName)}`);
     } catch (err) {
@@ -2263,9 +2264,10 @@ function registerXeroAuthRoutes(router2) {
       res.redirect(`${clientUrl}/settings?xero=error&message=${err.message}`);
     }
   });
-  router2.get("/api/xero/status", isAuthenticated, async (_req, res) => {
-    const tokens = await getXeroTokens();
-    const orgName = await db.select().from(systemSettings).where(eq5(systemSettings.key, "xero_org_name"));
+  router2.get("/api/xero/status", isAuthenticated, async (req, res) => {
+    const clientId = getClientId(req);
+    const tokens = await getXeroTokens(clientId);
+    const orgName = await db.select().from(systemSettings).where(and4(eq5(systemSettings.clientId, clientId), eq5(systemSettings.key, "xero_org_name")));
     res.json({
       connected: !!tokens,
       organisationName: orgName[0]?.value ?? null,
@@ -2273,8 +2275,9 @@ function registerXeroAuthRoutes(router2) {
     });
   });
   router2.post("/api/xero/disconnect", isAuthenticated, async (req, res) => {
-    await db.delete(systemSettings).where(eq5(systemSettings.key, "xero_tokens"));
-    await db.delete(systemSettings).where(eq5(systemSettings.key, "xero_org_name"));
+    const clientId = getClientId(req);
+    await db.delete(systemSettings).where(and4(eq5(systemSettings.clientId, clientId), eq5(systemSettings.key, "xero_tokens")));
+    await db.delete(systemSettings).where(and4(eq5(systemSettings.clientId, clientId), eq5(systemSettings.key, "xero_org_name")));
     logAudit(req, "XERO_DISCONNECTED");
     res.json({ ok: true });
   });
@@ -2284,7 +2287,7 @@ function registerXeroAuthRoutes(router2) {
       if (!fromDate || !toDate) {
         return res.status(400).json({ message: "fromDate and toDate are required" });
       }
-      const auth = await getValidAccessToken();
+      const auth = await getValidAccessToken(getClientId(req));
       if (!auth) {
         return res.status(401).json({
           message: "Xero not connected. Please connect via Settings.",
@@ -2389,7 +2392,7 @@ function registerXeroAuthRoutes(router2) {
 // server/openingBalanceImport.ts
 import multer3 from "multer";
 import * as XLSX3 from "xlsx";
-import { eq as eq6, and as and4 } from "drizzle-orm";
+import { eq as eq6, and as and5 } from "drizzle-orm";
 var upload3 = multer3({ storage: multer3.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 var SKU_MAP = {
   // Horse mixes — direct match with size suffix
@@ -2502,7 +2505,7 @@ function registerOpeningBalanceRoutes(router2) {
         }
         const parsed = parseSummarySheet(req.file.buffer);
         const clientId = getClientId(req);
-        const allProducts = await db.select().from(products).where(and4(eq6(products.clientId, clientId), eq6(products.isActive, true)));
+        const allProducts = await db.select().from(products).where(and5(eq6(products.clientId, clientId), eq6(products.isActive, true)));
         const productMap = new Map(allProducts.map((p) => [p.skuCode, p]));
         const enriched = parsed.map((row) => {
           if (row.skuCode && !productMap.has(row.skuCode)) {
@@ -2546,7 +2549,7 @@ function registerOpeningBalanceRoutes(router2) {
       const periodMonth = dateObj.getMonth() + 1;
       const periodYear = dateObj.getFullYear();
       const reference = `Opening balance as of ${asOfDate}`;
-      const existing = await db.select().from(stockTransactions).where(and4(eq6(stockTransactions.clientId, clientId), eq6(stockTransactions.reference, reference))).limit(1);
+      const existing = await db.select().from(stockTransactions).where(and5(eq6(stockTransactions.clientId, clientId), eq6(stockTransactions.reference, reference))).limit(1);
       if (existing.length > 0) {
         return res.status(409).json({
           message: `Opening balances for ${asOfDate} have already been imported. Delete existing records first to re-import.`
@@ -2618,12 +2621,12 @@ function registerOpeningBalanceRoutes(router2) {
           created++;
         }
         if (row.reorderPoint !== null && row.reorderPoint > 0) {
-          await db.update(products).set({ reorderPointOverride: row.reorderPoint }).where(and4(eq6(products.clientId, clientId), eq6(products.skuCode, row.skuCode)));
+          await db.update(products).set({ reorderPointOverride: row.reorderPoint }).where(and5(eq6(products.clientId, clientId), eq6(products.skuCode, row.skuCode)));
         }
       }
-      const existingLedgerDate = await db.select().from(systemSettings).where(and4(eq6(systemSettings.clientId, clientId), eq6(systemSettings.key, "ledger_start_date"))).limit(1);
+      const existingLedgerDate = await db.select().from(systemSettings).where(and5(eq6(systemSettings.clientId, clientId), eq6(systemSettings.key, "ledger_start_date"))).limit(1);
       if (existingLedgerDate.length > 0) {
-        await db.update(systemSettings).set({ value: asOfDate, updatedAt: /* @__PURE__ */ new Date() }).where(and4(eq6(systemSettings.clientId, clientId), eq6(systemSettings.key, "ledger_start_date")));
+        await db.update(systemSettings).set({ value: asOfDate, updatedAt: /* @__PURE__ */ new Date() }).where(and5(eq6(systemSettings.clientId, clientId), eq6(systemSettings.key, "ledger_start_date")));
       } else {
         await db.insert(systemSettings).values({
           clientId,
@@ -2705,7 +2708,7 @@ function registerOpeningBalanceRoutes(router2) {
         }
       }
       const clientId = getClientId(req);
-      const allProducts = await db.select().from(products).where(and4(eq6(products.clientId, clientId), eq6(products.isActive, true)));
+      const allProducts = await db.select().from(products).where(and5(eq6(products.clientId, clientId), eq6(products.isActive, true)));
       const productMap = new Map(allProducts.map((p) => [p.skuCode, p]));
       const enriched = parsed.map((row) => {
         if (row.skuCode && !productMap.has(row.skuCode)) {

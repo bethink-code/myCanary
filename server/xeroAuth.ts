@@ -1,9 +1,10 @@
 import { Router, Request, Response } from "express";
 import { db } from "./db";
 import { systemSettings } from "../shared/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { isAuthenticated } from "./routes";
 import { logAudit } from "./auditLog";
+import { getClientId } from "./clientContext";
 
 // Xero OAuth 2.0 configuration
 const XERO_AUTH_URL = "https://login.xero.com/identity/connect/authorize";
@@ -17,8 +18,8 @@ function getXeroRedirectUri() {
     : "http://localhost:5000/auth/xero/callback";
 }
 
-// Store/retrieve tokens from system_settings
-async function getXeroTokens(): Promise<{
+// Store/retrieve tokens from system_settings (scoped by clientId)
+async function getXeroTokens(clientId: number): Promise<{
   accessToken: string;
   refreshToken: string;
   expiresAt: number;
@@ -27,7 +28,7 @@ async function getXeroTokens(): Promise<{
   const result = await db
     .select()
     .from(systemSettings)
-    .where(eq(systemSettings.key, "xero_tokens"));
+    .where(and(eq(systemSettings.clientId, clientId), eq(systemSettings.key, "xero_tokens")));
   if (result.length === 0 || !result[0].value) return null;
   try {
     return JSON.parse(result[0].value);
@@ -36,7 +37,7 @@ async function getXeroTokens(): Promise<{
   }
 }
 
-async function saveXeroTokens(tokens: {
+async function saveXeroTokens(clientId: number, tokens: {
   accessToken: string;
   refreshToken: string;
   expiresAt: number;
@@ -45,16 +46,16 @@ async function saveXeroTokens(tokens: {
   const existing = await db
     .select()
     .from(systemSettings)
-    .where(eq(systemSettings.key, "xero_tokens"));
+    .where(and(eq(systemSettings.clientId, clientId), eq(systemSettings.key, "xero_tokens")));
 
   const value = JSON.stringify(tokens);
   if (existing.length > 0) {
     await db
       .update(systemSettings)
       .set({ value, updatedAt: new Date() })
-      .where(eq(systemSettings.key, "xero_tokens"));
+      .where(and(eq(systemSettings.clientId, clientId), eq(systemSettings.key, "xero_tokens")));
   } else {
-    await db.insert(systemSettings).values({ key: "xero_tokens", value });
+    await db.insert(systemSettings).values({ clientId, key: "xero_tokens", value });
   }
 }
 
@@ -85,8 +86,8 @@ async function refreshAccessToken(refreshToken: string): Promise<{
 }
 
 // Get a valid access token, refreshing if needed
-async function getValidAccessToken(): Promise<{ accessToken: string; tenantId: string } | null> {
-  const tokens = await getXeroTokens();
+async function getValidAccessToken(clientId: number): Promise<{ accessToken: string; tenantId: string } | null> {
+  const tokens = await getXeroTokens(clientId);
   if (!tokens) return null;
 
   // If token expires in less than 5 minutes, refresh
@@ -100,7 +101,7 @@ async function getValidAccessToken(): Promise<{ accessToken: string; tenantId: s
       expiresAt: Date.now() + refreshed.expires_in * 1000,
       tenantId: tokens.tenantId,
     };
-    await saveXeroTokens(newTokens);
+    await saveXeroTokens(clientId, newTokens);
     return { accessToken: newTokens.accessToken, tenantId: newTokens.tenantId };
   }
 
@@ -167,7 +168,8 @@ export function registerXeroAuthRoutes(router: Router) {
       const tenantId = connections[0].tenantId;
       const tenantName = connections[0].tenantName;
 
-      await saveXeroTokens({
+      const clientId = getClientId(req);
+      await saveXeroTokens(clientId, {
         accessToken: tokenData.access_token,
         refreshToken: tokenData.refresh_token,
         expiresAt: Date.now() + tokenData.expires_in * 1000,
@@ -178,14 +180,14 @@ export function registerXeroAuthRoutes(router: Router) {
       const existing = await db
         .select()
         .from(systemSettings)
-        .where(eq(systemSettings.key, "xero_org_name"));
+        .where(and(eq(systemSettings.clientId, clientId), eq(systemSettings.key, "xero_org_name")));
       if (existing.length > 0) {
         await db
           .update(systemSettings)
           .set({ value: tenantName, updatedAt: new Date() })
-          .where(eq(systemSettings.key, "xero_org_name"));
+          .where(and(eq(systemSettings.clientId, clientId), eq(systemSettings.key, "xero_org_name")));
       } else {
-        await db.insert(systemSettings).values({ key: "xero_org_name", value: tenantName });
+        await db.insert(systemSettings).values({ clientId, key: "xero_org_name", value: tenantName });
       }
 
       res.redirect(`${clientUrl}/settings?xero=connected&org=${encodeURIComponent(tenantName)}`);
@@ -196,12 +198,13 @@ export function registerXeroAuthRoutes(router: Router) {
   });
 
   // ─── Xero Connection Status ─────────────────────
-  router.get("/api/xero/status", isAuthenticated, async (_req, res) => {
-    const tokens = await getXeroTokens();
+  router.get("/api/xero/status", isAuthenticated, async (req, res) => {
+    const clientId = getClientId(req);
+    const tokens = await getXeroTokens(clientId);
     const orgName = await db
       .select()
       .from(systemSettings)
-      .where(eq(systemSettings.key, "xero_org_name"));
+      .where(and(eq(systemSettings.clientId, clientId), eq(systemSettings.key, "xero_org_name")));
 
     res.json({
       connected: !!tokens,
@@ -212,8 +215,9 @@ export function registerXeroAuthRoutes(router: Router) {
 
   // ─── Disconnect Xero ────────────────────────────
   router.post("/api/xero/disconnect", isAuthenticated, async (req, res) => {
-    await db.delete(systemSettings).where(eq(systemSettings.key, "xero_tokens"));
-    await db.delete(systemSettings).where(eq(systemSettings.key, "xero_org_name"));
+    const clientId = getClientId(req);
+    await db.delete(systemSettings).where(and(eq(systemSettings.clientId, clientId), eq(systemSettings.key, "xero_tokens")));
+    await db.delete(systemSettings).where(and(eq(systemSettings.clientId, clientId), eq(systemSettings.key, "xero_org_name")));
     logAudit(req, "XERO_DISCONNECTED");
     res.json({ ok: true });
   });
@@ -226,7 +230,7 @@ export function registerXeroAuthRoutes(router: Router) {
         return res.status(400).json({ message: "fromDate and toDate are required" });
       }
 
-      const auth = await getValidAccessToken();
+      const auth = await getValidAccessToken(getClientId(req));
       if (!auth) {
         return res.status(401).json({
           message: "Xero not connected. Please connect via Settings.",
