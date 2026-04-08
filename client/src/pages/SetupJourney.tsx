@@ -76,6 +76,14 @@ const STEPS: StepConfig[] = [
     link: "/xero/import",
     linkLabel: "View Xero Import",
   },
+  {
+    key: "supplies",
+    title: "Your Supplies",
+    explanation:
+      "Raw materials and packaging you supply to manufacturers. The canary tracks these alongside finished goods.",
+    link: "/tools/supply-import",
+    linkLabel: "Import Supplies",
+  },
 ];
 
 /* ---------- helpers ---------- */

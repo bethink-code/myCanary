@@ -1598,6 +1598,10 @@ function registerRoutes(router2) {
       ));
       const salesCount = Number(salesRows[0]?.cnt ?? 0);
       const salesDataComplete = salesCount > 0;
+      const supplyRows = await db.select({ cnt: count() }).from(supplies).where(eq2(supplies.clientId, clientId));
+      const supplyCount = Number(supplyRows[0]?.cnt ?? 0);
+      const suppliesComplete = supplyCount > 0;
+      const suppliesDesc = suppliesComplete ? `${supplyCount} supplies imported (raw materials + packaging)` : "No supplies imported yet";
       const clientRow = await db.select({ setupComplete: clients.setupComplete }).from(clients).where(eq2(clients.id, clientId)).limit(1);
       const productsDesc = productsComplete ? `${productCount} products configured` : "No products configured yet";
       let suppliersDesc;
@@ -1636,7 +1640,8 @@ function registerRoutes(router2) {
           },
           openingStock: { complete: openingStockComplete, description: openingStockDesc },
           reorderPoints: { complete: reorderPointsComplete, count: rpCount, total: activeTotal, description: reorderPointsDesc },
-          salesData: { complete: salesDataComplete, description: salesDataDesc }
+          salesData: { complete: salesDataComplete, description: salesDataDesc },
+          supplies: { complete: suppliesComplete, count: supplyCount, description: suppliesDesc }
         }
       });
     } catch (err) {
@@ -1646,7 +1651,7 @@ function registerRoutes(router2) {
   router2.post("/api/setup/complete", isAuthenticated, async (req, res) => {
     try {
       const clientId = getClientId(req);
-      const [productRows, mfgRows, ledgerRow, activeRows, rpRows, salesRows] = await Promise.all([
+      const [productRows, mfgRows, ledgerRow, activeRows, rpRows, salesRows, supplyRows] = await Promise.all([
         db.select({ cnt: count() }).from(products).where(eq2(products.clientId, clientId)),
         db.select({
           total: count(),
@@ -1655,7 +1660,8 @@ function registerRoutes(router2) {
         db.select().from(systemSettings).where(and(eq2(systemSettings.clientId, clientId), eq2(systemSettings.key, "ledger_start_date"))).limit(1),
         db.select({ cnt: count() }).from(products).where(and(eq2(products.clientId, clientId), eq2(products.isActive, true))),
         db.select({ cnt: count() }).from(products).where(and(eq2(products.clientId, clientId), eq2(products.isActive, true), sql2`${products.reorderPointOverride} > 0`)),
-        db.select({ cnt: count() }).from(stockTransactions).where(and(eq2(stockTransactions.clientId, clientId), eq2(stockTransactions.transactionType, "SALES_OUT")))
+        db.select({ cnt: count() }).from(stockTransactions).where(and(eq2(stockTransactions.clientId, clientId), eq2(stockTransactions.transactionType, "SALES_OUT"))),
+        db.select({ cnt: count() }).from(supplies).where(eq2(supplies.clientId, clientId))
       ]);
       const productsOk = Number(productRows[0]?.cnt ?? 0) > 0;
       const mfgTotal = Number(mfgRows[0]?.total ?? 0);
@@ -1664,7 +1670,8 @@ function registerRoutes(router2) {
       const activeTotal = Number(activeRows[0]?.cnt ?? 0);
       const rpOk = activeTotal > 0 && Number(rpRows[0]?.cnt ?? 0) / activeTotal > 0.8;
       const salesOk = Number(salesRows[0]?.cnt ?? 0) > 0;
-      if (!productsOk || !suppliersOk || !openingOk || !rpOk || !salesOk) {
+      const suppliesOk = Number(supplyRows[0]?.cnt ?? 0) > 0;
+      if (!productsOk || !suppliersOk || !openingOk || !rpOk || !salesOk || !suppliesOk) {
         return res.status(400).json({ message: "Not all setup steps are complete" });
       }
       await db.update(clients).set({ setupComplete: true }).where(eq2(clients.id, clientId));

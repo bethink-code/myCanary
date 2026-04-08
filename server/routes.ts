@@ -27,6 +27,7 @@ import {
   purchaseOrderLines,
   pnpOrders,
   systemSettings,
+  supplies,
 } from "../shared/schema";
 import { eq, sql, and, desc, asc, sum, count, or, isNull, gte, lte, inArray, like } from "drizzle-orm";
 import { getClientId } from "./clientContext";
@@ -1523,6 +1524,15 @@ export function registerRoutes(router: Router) {
       const salesCount = Number(salesRows[0]?.cnt ?? 0);
       const salesDataComplete = salesCount > 0;
 
+      // 6. Supplies: complete if any supplies exist
+      const supplyRows = await db.select({ cnt: count() }).from(supplies)
+        .where(eq(supplies.clientId, clientId));
+      const supplyCount = Number(supplyRows[0]?.cnt ?? 0);
+      const suppliesComplete = supplyCount > 0;
+      const suppliesDesc = suppliesComplete
+        ? `${supplyCount} supplies imported (raw materials + packaging)`
+        : "No supplies imported yet";
+
       // Read setupComplete from clients table
       const clientRow = await db.select({ setupComplete: clients.setupComplete }).from(clients)
         .where(eq(clients.id, clientId)).limit(1);
@@ -1575,6 +1585,7 @@ export function registerRoutes(router: Router) {
           openingStock: { complete: openingStockComplete, description: openingStockDesc },
           reorderPoints: { complete: reorderPointsComplete, count: rpCount, total: activeTotal, description: reorderPointsDesc },
           salesData: { complete: salesDataComplete, description: salesDataDesc },
+          supplies: { complete: suppliesComplete, count: supplyCount, description: suppliesDesc },
         },
       });
     } catch (err: any) {
@@ -1587,7 +1598,7 @@ export function registerRoutes(router: Router) {
       const clientId = getClientId(req);
 
       // Re-check all 5 steps
-      const [productRows, mfgRows, ledgerRow, activeRows, rpRows, salesRows] = await Promise.all([
+      const [productRows, mfgRows, ledgerRow, activeRows, rpRows, salesRows, supplyRows] = await Promise.all([
         db.select({ cnt: count() }).from(products).where(eq(products.clientId, clientId)),
         db.select({
           total: count(),
@@ -1601,6 +1612,8 @@ export function registerRoutes(router: Router) {
           .where(and(eq(products.clientId, clientId), eq(products.isActive, true), sql`${products.reorderPointOverride} > 0`)),
         db.select({ cnt: count() }).from(stockTransactions)
           .where(and(eq(stockTransactions.clientId, clientId), eq(stockTransactions.transactionType, "SALES_OUT"))),
+        db.select({ cnt: count() }).from(supplies)
+          .where(eq(supplies.clientId, clientId)),
       ]);
 
       const productsOk = Number(productRows[0]?.cnt ?? 0) > 0;
@@ -1610,8 +1623,9 @@ export function registerRoutes(router: Router) {
       const activeTotal = Number(activeRows[0]?.cnt ?? 0);
       const rpOk = activeTotal > 0 && Number(rpRows[0]?.cnt ?? 0) / activeTotal > 0.8;
       const salesOk = Number(salesRows[0]?.cnt ?? 0) > 0;
+      const suppliesOk = Number(supplyRows[0]?.cnt ?? 0) > 0;
 
-      if (!productsOk || !suppliersOk || !openingOk || !rpOk || !salesOk) {
+      if (!productsOk || !suppliersOk || !openingOk || !rpOk || !salesOk || !suppliesOk) {
         return res.status(400).json({ message: "Not all setup steps are complete" });
       }
 
