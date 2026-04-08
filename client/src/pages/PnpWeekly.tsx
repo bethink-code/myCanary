@@ -2,6 +2,7 @@ import { useState, useCallback } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest } from "../lib/queryClient";
 import { Link } from "react-router-dom";
+import StickyActionBar from "../components/StickyActionBar";
 
 // ─── PnP DC reference data ─────────────────────────────────────
 const PNP_DCS: Record<string, string> = {
@@ -406,13 +407,15 @@ export default function PnpWeekly() {
             </div>
           )}
 
-          <button
-            onClick={() => uploadMutation.mutate()}
-            disabled={!file || !weekEndingDate || uploadMutation.isPending}
-            className="px-6 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {uploadMutation.isPending ? "Uploading..." : "Upload & Parse"}
-          </button>
+          <StickyActionBar>
+            <button
+              onClick={() => uploadMutation.mutate()}
+              disabled={!file || !weekEndingDate || uploadMutation.isPending}
+              className="px-6 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {uploadMutation.isPending ? "Uploading..." : "Upload & Parse"}
+            </button>
+          </StickyActionBar>
         </div>
       )}
 
@@ -526,7 +529,7 @@ export default function PnpWeekly() {
             </div>
           )}
 
-          <div className="flex gap-3">
+          <StickyActionBar>
             <button
               onClick={() => createMutation.mutate()}
               disabled={createMutation.isPending || matchedCount === 0}
@@ -545,7 +548,7 @@ export default function PnpWeekly() {
             >
               Back
             </button>
-          </div>
+          </StickyActionBar>
         </div>
       )}
 
@@ -669,7 +672,7 @@ export default function PnpWeekly() {
             </div>
           </div>
 
-          <div className="flex gap-3">
+          <StickyActionBar>
             <button
               onClick={() => fetchDispatchInstruction(createdOrder.order.id)}
               className="px-6 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90"
@@ -682,7 +685,7 @@ export default function PnpWeekly() {
             >
               Back to Edit
             </button>
-          </div>
+          </StickyActionBar>
         </div>
       )}
 
@@ -737,7 +740,7 @@ export default function PnpWeekly() {
             </div>
           )}
 
-          <div className="flex gap-3">
+          <StickyActionBar>
             <button
               onClick={handleCopy}
               className={`px-6 py-2 rounded-lg text-sm font-medium ${
@@ -762,7 +765,7 @@ export default function PnpWeekly() {
             >
               Back
             </button>
-          </div>
+          </StickyActionBar>
         </div>
       )}
 

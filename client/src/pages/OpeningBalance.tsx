@@ -3,6 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "../lib/queryClient";
 import { Link, useNavigate } from "react-router-dom";
 import LoadingOverlay from "../components/LoadingOverlay";
+import StickyActionBar from "../components/StickyActionBar";
 
 interface ParsedRow {
   sheetCode: string;
@@ -191,13 +192,15 @@ export default function OpeningBalance() {
                 </div>
               )}
 
-              <button
-                onClick={() => sheetPullMutation.mutate()}
-                disabled={sheetPullMutation.isPending}
-                className="px-6 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
-              >
-                Pull Stock Levels from Google Sheets
-              </button>
+              <StickyActionBar>
+                <button
+                  onClick={() => sheetPullMutation.mutate()}
+                  disabled={sheetPullMutation.isPending}
+                  className="px-6 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
+                >
+                  Pull Stock Levels from Google Sheets
+                </button>
+              </StickyActionBar>
             </div>
           )}
 
@@ -269,13 +272,15 @@ export default function OpeningBalance() {
                 </div>
               )}
 
-              <button
-                onClick={() => previewMutation.mutate()}
-                disabled={!file || previewMutation.isPending}
-                className="px-6 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
-              >
-                Parse & Preview
-              </button>
+              <StickyActionBar>
+                <button
+                  onClick={() => previewMutation.mutate()}
+                  disabled={!file || previewMutation.isPending}
+                  className="px-6 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
+                >
+                  Parse & Preview
+                </button>
+              </StickyActionBar>
             </div>
           )}
         </div>
@@ -397,7 +402,7 @@ export default function OpeningBalance() {
             </div>
           )}
 
-          <div className="flex gap-3">
+          <StickyActionBar>
             <button
               onClick={() => commitMutation.mutate()}
               disabled={commitMutation.isPending || summary.matchedCount === 0}
@@ -411,7 +416,7 @@ export default function OpeningBalance() {
             >
               Back
             </button>
-          </div>
+          </StickyActionBar>
         </div>
       )}
 

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "../lib/queryClient";
+import StickyActionBar from "../components/StickyActionBar";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -566,7 +567,7 @@ function OrderDetailsTab({
         </div>
 
         {/* Submit */}
-        <div className="flex justify-end">
+        <StickyActionBar>
           <button
             type="submit"
             disabled={createMutation.isPending}
@@ -574,7 +575,7 @@ function OrderDetailsTab({
           >
             {createMutation.isPending ? "Creating..." : "Create Order"}
           </button>
-        </div>
+        </StickyActionBar>
         {createMutation.isError && (
           <p className="text-red-600 text-sm">
             Error: {(createMutation.error as Error).message}

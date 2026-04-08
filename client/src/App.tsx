@@ -247,7 +247,7 @@ function AppLayout() {
         </div>
         <MobileStockMenu open={mobileStockOpen} onClose={() => setMobileStockOpen(false)} />
       </nav>
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-24">
         <Routes>
           <Route path="/" element={<Snapshot />} />
           <Route path="/stock" element={<StockManagement />} />

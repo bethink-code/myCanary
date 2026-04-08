@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "../lib/queryClient";
 import { Link, useNavigate } from "react-router-dom";
+import StickyActionBar from "../components/StickyActionBar";
 
 interface Product {
   id: number;
@@ -287,7 +288,7 @@ export default function DeliveryReceipt() {
           </div>
         )}
 
-        <div className="flex gap-3">
+        <StickyActionBar>
           <button
             type="submit"
             disabled={saving}
@@ -301,7 +302,7 @@ export default function DeliveryReceipt() {
           >
             Cancel
           </Link>
-        </div>
+        </StickyActionBar>
       </form>
     </div>
   );

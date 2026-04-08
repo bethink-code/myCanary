@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "../lib/queryClient";
 import { Link } from "react-router-dom";
 import LoadingOverlay from "../components/LoadingOverlay";
+import StickyActionBar from "../components/StickyActionBar";
 
 interface ParsedRow {
   itemCode: string;
@@ -496,13 +497,15 @@ export default function XeroImport() {
                     </div>
                   )}
 
-                  <button
-                    onClick={() => apiPullMutation.mutate()}
-                    disabled={!fromDate || !toDate || apiPullMutation.isPending || !hasOpeningBalance || !!fromDateBeforeLedger || periodAlreadyImported}
-                    className="px-6 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {apiPullMutation.isPending ? "Pulling from Xero..." : "Pull Sales Data"}
-                  </button>
+                  <StickyActionBar>
+                    <button
+                      onClick={() => apiPullMutation.mutate()}
+                      disabled={!fromDate || !toDate || apiPullMutation.isPending || !hasOpeningBalance || !!fromDateBeforeLedger || periodAlreadyImported}
+                      className="px-6 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {apiPullMutation.isPending ? "Pulling from Xero..." : "Pull Sales Data"}
+                    </button>
+                  </StickyActionBar>
                 </>
               ) : (
                 <Link
@@ -616,13 +619,15 @@ export default function XeroImport() {
               )}
 
               {/* Upload button */}
-              <button
-                onClick={() => previewMutation.mutate()}
-                disabled={!file || !fromDate || !toDate || previewMutation.isPending || !hasOpeningBalance || !!fromDateBeforeLedger || periodAlreadyImported}
-                className="px-6 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {previewMutation.isPending ? "Uploading..." : "Upload & Preview"}
-              </button>
+              <StickyActionBar>
+                <button
+                  onClick={() => previewMutation.mutate()}
+                  disabled={!file || !fromDate || !toDate || previewMutation.isPending || !hasOpeningBalance || !!fromDateBeforeLedger || periodAlreadyImported}
+                  className="px-6 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {previewMutation.isPending ? "Uploading..." : "Upload & Preview"}
+                </button>
+              </StickyActionBar>
             </div>
           )}
         </div>
@@ -749,7 +754,7 @@ export default function XeroImport() {
           )}
 
           {/* Actions */}
-          <div className="flex gap-3">
+          <StickyActionBar>
             <button
               onClick={() => commitMutation.mutate()}
               disabled={commitMutation.isPending || mappedCount === 0}
@@ -768,7 +773,7 @@ export default function XeroImport() {
             >
               Cancel
             </button>
-          </div>
+          </StickyActionBar>
         </div>
       )}
 

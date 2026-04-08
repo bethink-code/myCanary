@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "../lib/queryClient";
 import { Link } from "react-router-dom";
+import StickyActionBar from "../components/StickyActionBar";
 
 interface StockItem {
   skuCode: string;
@@ -141,19 +142,21 @@ export default function TransferStock() {
               )}
             </div>
 
-            <button
-              onClick={() => transferMutation.mutate()}
-              disabled={
-                !cases ||
-                cases <= 0 ||
-                transferMutation.isPending
-              }
-              className="px-6 py-2 bg-primary text-primary-foreground rounded-lg font-medium text-sm hover:opacity-90 disabled:opacity-50"
-            >
-              {transferMutation.isPending
-                ? "Transferring..."
-                : `Transfer ${cases} cases to 8/8`}
-            </button>
+            <StickyActionBar>
+              <button
+                onClick={() => transferMutation.mutate()}
+                disabled={
+                  !cases ||
+                  cases <= 0 ||
+                  transferMutation.isPending
+                }
+                className="px-6 py-2 bg-primary text-primary-foreground rounded-lg font-medium text-sm hover:opacity-90 disabled:opacity-50"
+              >
+                {transferMutation.isPending
+                  ? "Transferring..."
+                  : `Transfer ${cases} cases to 8/8`}
+              </button>
+            </StickyActionBar>
           </>
         )}
 
