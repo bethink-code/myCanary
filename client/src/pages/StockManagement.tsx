@@ -221,6 +221,7 @@ export default function StockManagement() {
                   <th className="text-left px-4 py-3 font-medium text-slate-600">
                     Manufacturer
                   </th>
+                  <th className="px-4 py-3"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -282,13 +283,21 @@ export default function StockManagement() {
                           <span className="text-amber-600">TBC</span>
                         )}
                       </td>
+                      <td className="px-4 py-3">
+                        <Link
+                          to={`/stock/adjustment?sku=${item.skuCode}`}
+                          className="text-xs text-slate-400 hover:text-primary"
+                        >
+                          Adjust
+                        </Link>
+                      </td>
                     </tr>
                   );
                 })}
                 {filtered.length === 0 && (
                   <tr>
                     <td
-                      colSpan={7}
+                      colSpan={8}
                       className="px-4 py-8 text-center text-slate-500"
                     >
                       No products match your filters.

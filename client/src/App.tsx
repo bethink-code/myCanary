@@ -17,6 +17,7 @@ import PnpWeekly from "./pages/PnpWeekly";
 import OpeningBalance from "./pages/OpeningBalance";
 import Settings from "./pages/Settings";
 import PurchaseOrders from "./pages/PurchaseOrders";
+import StockAdjustment from "./pages/StockAdjustment";
 import SetupJourney from "./pages/SetupJourney";
 import NotificationBell from "./components/NotificationBell";
 import NotFound from "./pages/not-found";
@@ -30,6 +31,7 @@ const STOCK_LINKS = [
   { to: "/stock/reorder", label: "Reorder" },
   { to: "/stock/purchase-orders", label: "Purchase Orders" },
   { to: "/stock/delivery", label: "Record Delivery" },
+  { to: "/stock/adjustment", label: "Stock Adjustment" },
   { to: "/stock/transfer", label: "Transfer" },
   { to: "/stock/opening-balance", label: "Opening Balance" },
 ];
@@ -257,6 +259,7 @@ function AppLayout() {
           <Route path="/stock/product/:skuCode" element={<ProductDetail />} />
           <Route path="/stock/reorder" element={<ReorderWorkflow />} />
           <Route path="/stock/purchase-orders" element={<PurchaseOrders />} />
+          <Route path="/stock/adjustment" element={<StockAdjustment />} />
           <Route path="/stock/transfer" element={<TransferStock />} />
           <Route path="/orders" element={<OrderList />} />
           <Route path="/orders/new" element={<OrderDetail />} />

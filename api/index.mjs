@@ -811,11 +811,19 @@ function registerRoutes(router2) {
       res.status(500).json({ message: "Failed to create batch", error: err.message });
     }
   });
+  const ADJUSTMENT_REASONS = [
+    "Physical count",
+    "Damaged stock",
+    "Write-off / expired",
+    "Correction",
+    "Other"
+  ];
   const adjustmentSchema = z.object({
     skuCode: z.string().min(1).max(50),
     stockLocation: z.string().min(1).max(10),
-    quantity: z.number().int(),
-    // signed: positive or negative
+    newQuantity: z.number().int().min(0),
+    // the correct stock level after adjustment
+    reason: z.enum(ADJUSTMENT_REASONS),
     notes: z.string().min(1, "Notes are required for adjustments"),
     batchId: z.number().int().positive().optional()
   });
@@ -829,29 +837,60 @@ function registerRoutes(router2) {
       const user = req.user;
       const clientId = getClientId(req);
       const now = /* @__PURE__ */ new Date();
+      const currentStockRow = await db.select({ total: sum(stockTransactions.quantity).mapWith(Number) }).from(stockTransactions).where(
+        and(
+          eq2(stockTransactions.clientId, clientId),
+          eq2(stockTransactions.skuCode, data.skuCode),
+          eq2(stockTransactions.stockLocation, data.stockLocation)
+        )
+      );
+      const currentStock = currentStockRow[0]?.total ?? 0;
+      const delta = data.newQuantity - currentStock;
+      if (delta === 0) {
+        return res.json({ message: "No adjustment needed \u2014 stock already at that level", noChange: true });
+      }
       const [txn] = await db.insert(stockTransactions).values({
         clientId,
         batchId: data.batchId || null,
         skuCode: data.skuCode,
         stockLocation: data.stockLocation,
         transactionType: "ADJUSTMENT",
-        quantity: data.quantity,
+        quantity: delta,
         transactionDate: now.toISOString().split("T")[0],
         periodMonth: now.getMonth() + 1,
         periodYear: now.getFullYear(),
         createdBy: user.id,
-        notes: data.notes
+        notes: `[${data.reason}] ${data.notes}`,
+        reference: `Adjustment: ${currentStock} \u2192 ${data.newQuantity}`
       }).returning();
       logAudit(req, "STOCK_ADJUSTMENT", {
         resourceType: "StockTransaction",
         resourceId: String(txn.id),
-        detail: `Adjustment for ${data.skuCode} at ${data.stockLocation}: ${data.quantity > 0 ? "+" : ""}${data.quantity} units. ${data.notes}`,
-        afterValue: txn
+        detail: `${data.reason}: ${data.skuCode} at ${data.stockLocation} adjusted from ${currentStock} to ${data.newQuantity} (${delta > 0 ? "+" : ""}${delta}). ${data.notes}`,
+        beforeValue: { currentStock },
+        afterValue: { newQuantity: data.newQuantity, delta }
       });
       res.json(txn);
     } catch (err) {
       res.status(500).json({ message: "Failed to create adjustment", error: err.message });
     }
+  });
+  router2.get("/api/stock/adjustments", isAuthenticated, async (req, res) => {
+    try {
+      const clientId = getClientId(req);
+      const rows = await db.select().from(stockTransactions).where(
+        and(
+          eq2(stockTransactions.clientId, clientId),
+          eq2(stockTransactions.transactionType, "ADJUSTMENT")
+        )
+      ).orderBy(desc(stockTransactions.createdAt)).limit(100);
+      res.json(rows);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to fetch adjustments", error: err.message });
+    }
+  });
+  router2.get("/api/stock/adjustment-reasons", isAuthenticated, (_req, res) => {
+    res.json(ADJUSTMENT_REASONS);
   });
   router2.get("/api/stock/reorder-check", isAuthenticated, async (req, res) => {
     try {
