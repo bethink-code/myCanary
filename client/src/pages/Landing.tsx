@@ -21,9 +21,9 @@ export default function Landing() {
         <div className="bg-white rounded-xl shadow-lg p-8 space-y-6">
           <div className="text-center space-y-2">
             <h1 className="text-2xl font-bold text-slate-900">
-              The Herbal Horse & Pet
+              MyCanary
             </h1>
-            <p className="text-sm text-slate-500">Operations Management</p>
+            <p className="text-sm text-slate-500">Stock early warning system</p>
           </div>
 
           {!showRequestForm ? (

@@ -49,7 +49,8 @@ function buildEmailDraft(
     .map((item) => `  ${item.skuCode}  |  ${item.productName}  |  Qty: ${item.qty}`)
     .join("\n");
 
-  return `Subject: Purchase Order — The Herbal Horse & Pet — ${subjectDate}
+  // TODO: Pull business name, contact name, and email from client config
+  return `Subject: Purchase Order — ${subjectDate}
 
 Hi ${manufacturerName} team,
 
@@ -59,10 +60,7 @@ ${lines}
 
 Requested delivery date: ${formatDate(deliveryDate)}
 
-Kind regards,
-Beryl Shuttleworth
-beryl@theherbalhorse.com
-The Herbal Horse & Pet`;
+Kind regards`;
 }
 
 export default function ReorderWorkflow() {

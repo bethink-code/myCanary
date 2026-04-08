@@ -330,7 +330,7 @@ function SystemSettingsTab() {
   return (
     <div className="space-y-6">
       <div className="bg-white rounded-xl border border-border p-6">
-        <h3 className="font-semibold text-slate-900 mb-4">THH Business Details</h3>
+        <h3 className="font-semibold text-slate-900 mb-4">Business Details</h3>
         <p className="text-sm text-slate-500">
           Business address, VAT number, and contact details can be configured here.
           This data is used in purchase orders and courier bookings.

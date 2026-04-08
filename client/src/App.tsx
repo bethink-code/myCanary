@@ -27,7 +27,7 @@ function TermsModal({ onAccept }: { onAccept: () => void }) {
         <h2 className="text-xl font-bold text-slate-900">Terms of Use</h2>
         <p className="text-sm text-slate-600">
           By using this application, you agree to handle all business data
-          confidentially and in accordance with The Herbal Horse & Pet's
+          confidentially and in accordance with your organisation's
           operational policies. All actions are logged for audit purposes.
         </p>
         <button
@@ -58,7 +58,7 @@ function AppLayout() {
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-8">
               <Link to="/" className="font-bold text-slate-900">
-                THH Operations
+                MyCanary
               </Link>
               <div className="hidden md:flex items-center gap-4">
                 <Link to="/" className="text-sm text-slate-600 hover:text-slate-900">
