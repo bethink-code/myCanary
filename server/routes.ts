@@ -30,6 +30,8 @@ import {
 } from "../shared/schema";
 import { eq, sql, and, desc, asc, sum, count, or, isNull, gte, lte, inArray, like } from "drizzle-orm";
 import { getClientId } from "./clientContext";
+import { calcStockStatus, calcDepletionRate, calcDaysRemaining, calcProjectedReorderDate, calcOverallStatus, calcReorderPoint, calcRecommendedOrderQty } from "../shared/calculations/stock";
+import { calcExpectedDeliveryDate, isValidPoTransition } from "../shared/calculations/po";
 
 export function isAuthenticated(req: Request, res: Response, next: NextFunction) {
   if (req.isAuthenticated()) return next();
@@ -671,8 +673,7 @@ export function registerRoutes(router: Router) {
         } else {
           const annualUnits = salesMap[p.skuCode] || 0;
           if (annualUnits > 0) {
-            // RP = (annual_sales_units / 365) * 75
-            reorderPoint = Math.ceil((annualUnits / 365) * 75);
+            reorderPoint = calcReorderPoint(annualUnits);
           }
           // If no sales data, reorderPoint stays null
         }
@@ -681,18 +682,11 @@ export function registerRoutes(router: Router) {
         let recommendedOrderQty: number | null = null;
 
         if (reorderPoint !== null) {
-          if (currentStock <= reorderPoint) {
-            status = "REORDER";
-            // PRD Section 6.4: Target = RP × 2, Gap = Target − Current
-            const targetStock = reorderPoint * 2;
-            const gap = targetStock - currentStock;
-            recommendedOrderQty = gap > 0 ? gap : 1;
-          } else if (currentStock <= reorderPoint * 1.25) {
-            status = "APPROACHING";
-            // Still calculate a recommended qty for approaching items
-            const targetStock = reorderPoint * 2;
-            const gap = targetStock - currentStock;
-            recommendedOrderQty = gap > 0 ? gap : null;
+          const stockStatus = calcStockStatus(currentStock, reorderPoint);
+          if (stockStatus === "REORDER" || stockStatus === "APPROACHING") {
+            status = stockStatus;
+            const qty = calcRecommendedOrderQty(currentStock, reorderPoint);
+            recommendedOrderQty = qty > 0 ? qty : (stockStatus === "REORDER" ? 1 : null);
           }
         }
 
@@ -1281,9 +1275,7 @@ export function registerRoutes(router: Router) {
 
       const today = new Date();
       const todayStr = today.toISOString().slice(0, 10);
-      const expectedDelivery = new Date(today);
-      expectedDelivery.setDate(expectedDelivery.getDate() + mfr.standardLeadTimeDays);
-      const expectedDeliveryStr = expectedDelivery.toISOString().slice(0, 10);
+      const expectedDeliveryStr = calcExpectedDeliveryDate(today, mfr.standardLeadTimeDays).toISOString().slice(0, 10);
 
       // Insert PO
       const [po] = await db.insert(purchaseOrders).values({
@@ -1413,12 +1405,7 @@ export function registerRoutes(router: Router) {
       if (!current) return res.status(404).json({ message: "Purchase order not found" });
 
       // Validate transition
-      const validTransitions: Record<string, string> = {
-        APPROVED: "SENT",
-        SENT: "CONFIRMED",
-        CONFIRMED: "DELIVERED",
-      };
-      if (validTransitions[current.status] !== newStatus) {
+      if (!isValidPoTransition(current.status, newStatus)) {
         return res.status(400).json({ message: `Cannot transition from ${current.status} to ${newStatus}` });
       }
 
@@ -1433,9 +1420,7 @@ export function registerRoutes(router: Router) {
           .from(manufacturers)
           .where(and(eq(manufacturers.id, current.manufacturerId), eq(manufacturers.clientId, clientId)));
         if (mfr) {
-          const expected = new Date(now);
-          expected.setDate(expected.getDate() + mfr.standardLeadTimeDays);
-          updates.expectedDeliveryDate = expected.toISOString().slice(0, 10);
+          updates.expectedDeliveryDate = calcExpectedDeliveryDate(now, mfr.standardLeadTimeDays).toISOString().slice(0, 10);
         }
       }
 
@@ -1667,35 +1652,18 @@ export function registerRoutes(router: Router) {
       const items = allProducts.map((p) => {
         const currentStock = stockMap.get(p.skuCode) ?? 0;
         const totalOut = depletionMap.get(p.skuCode) ?? 0;
-        const depletionRate = totalOut / window;
+        const depletionRate = calcDepletionRate(totalOut, window);
         const reorderPoint = p.reorderPoint;
 
-        let daysRemaining: number | null = null;
-        if (depletionRate > 0) {
-          daysRemaining = Math.round((currentStock / depletionRate) * 10) / 10;
-        }
-
-        let projectedReorderDate: string | null = null;
-        if (depletionRate > 0 && reorderPoint !== null && reorderPoint !== undefined) {
-          const daysUntilReorder = (currentStock - reorderPoint) / depletionRate;
-          if (daysUntilReorder > 0) {
-            const reorderDate = new Date(today);
-            reorderDate.setDate(reorderDate.getDate() + Math.ceil(daysUntilReorder));
-            projectedReorderDate = reorderDate.toISOString().split("T")[0];
-          } else {
-            projectedReorderDate = today.toISOString().split("T")[0];
-          }
-        }
+        const daysRemaining = calcDaysRemaining(currentStock, depletionRate);
+        const projectedReorderDate = calcProjectedReorderDate(currentStock, reorderPoint, depletionRate, today);
 
         let status: "OK" | "APPROACHING" | "REORDER" | "NO_DATA";
         if (reorderPoint === null || reorderPoint === undefined) {
           status = "NO_DATA";
-        } else if (currentStock <= reorderPoint) {
-          status = "REORDER";
-        } else if (currentStock <= reorderPoint * 1.25) {
-          status = "APPROACHING";
         } else {
-          status = "OK";
+          const stockStatus = calcStockStatus(currentStock, reorderPoint);
+          status = stockStatus === "N/A" ? "NO_DATA" : stockStatus;
         }
 
         return {
@@ -1713,12 +1681,7 @@ export function registerRoutes(router: Router) {
         };
       });
 
-      let overallStatus: "ACTION_NEEDED" | "HEADS_UP" | "ALL_GOOD" = "ALL_GOOD";
-      if (items.some((i) => i.status === "REORDER")) {
-        overallStatus = "ACTION_NEEDED";
-      } else if (items.some((i) => i.status === "APPROACHING")) {
-        overallStatus = "HEADS_UP";
-      }
+      const overallStatus = calcOverallStatus(items.map((i) => i.status));
 
       // Data freshness: when was stock data last updated?
       const ledgerRow = await db.select().from(systemSettings)

@@ -476,6 +476,59 @@ function getClientId(req) {
   return req.clientId;
 }
 
+// shared/calculations/stock.ts
+function calcStockStatus(current, reorderPoint) {
+  if (reorderPoint === null || reorderPoint === 0) return "N/A";
+  if (current <= reorderPoint) return "REORDER";
+  if (current <= reorderPoint * 1.25) return "APPROACHING";
+  return "OK";
+}
+function calcDepletionRate(totalOutUnits, windowDays) {
+  if (windowDays <= 0) return 0;
+  return totalOutUnits / windowDays;
+}
+function calcDaysRemaining(currentStock, depletionRate) {
+  if (depletionRate <= 0) return null;
+  return Math.round(currentStock / depletionRate * 10) / 10;
+}
+function calcProjectedReorderDate(currentStock, reorderPoint, depletionRate, today = /* @__PURE__ */ new Date()) {
+  if (depletionRate <= 0 || reorderPoint === null || reorderPoint === void 0) return null;
+  const daysUntilReorder = (currentStock - reorderPoint) / depletionRate;
+  const reorderDate = new Date(today);
+  if (daysUntilReorder > 0) {
+    reorderDate.setDate(reorderDate.getDate() + Math.ceil(daysUntilReorder));
+  }
+  return reorderDate.toISOString().split("T")[0];
+}
+function calcOverallStatus(statuses) {
+  if (statuses.some((s) => s === "REORDER")) return "ACTION_NEEDED";
+  if (statuses.some((s) => s === "APPROACHING")) return "HEADS_UP";
+  return "ALL_GOOD";
+}
+function calcReorderPoint(annualSalesUnits, bufferDays = 75) {
+  return Math.round(annualSalesUnits / 365 * bufferDays);
+}
+function calcRecommendedOrderQty(currentStock, reorderPoint) {
+  const target = reorderPoint * 2;
+  return Math.max(0, target - currentStock);
+}
+
+// shared/calculations/po.ts
+function calcExpectedDeliveryDate(sentDate, leadTimeDays) {
+  const d = new Date(sentDate);
+  d.setDate(d.getDate() + leadTimeDays);
+  return d;
+}
+var PO_TRANSITIONS = {
+  DRAFT: ["APPROVED"],
+  APPROVED: ["SENT"],
+  SENT: ["CONFIRMED"],
+  CONFIRMED: ["DELIVERED"]
+};
+function isValidPoTransition(from, to) {
+  return PO_TRANSITIONS[from]?.includes(to) ?? false;
+}
+
 // server/routes.ts
 function isAuthenticated(req, res, next) {
   if (req.isAuthenticated()) return next();
@@ -933,22 +986,17 @@ function registerRoutes(router2) {
         } else {
           const annualUnits = salesMap[p.skuCode] || 0;
           if (annualUnits > 0) {
-            reorderPoint = Math.ceil(annualUnits / 365 * 75);
+            reorderPoint = calcReorderPoint(annualUnits);
           }
         }
         let status = "OK";
         let recommendedOrderQty = null;
         if (reorderPoint !== null) {
-          if (currentStock <= reorderPoint) {
-            status = "REORDER";
-            const targetStock = reorderPoint * 2;
-            const gap = targetStock - currentStock;
-            recommendedOrderQty = gap > 0 ? gap : 1;
-          } else if (currentStock <= reorderPoint * 1.25) {
-            status = "APPROACHING";
-            const targetStock = reorderPoint * 2;
-            const gap = targetStock - currentStock;
-            recommendedOrderQty = gap > 0 ? gap : null;
+          const stockStatus = calcStockStatus(currentStock, reorderPoint);
+          if (stockStatus === "REORDER" || stockStatus === "APPROACHING") {
+            status = stockStatus;
+            const qty = calcRecommendedOrderQty(currentStock, reorderPoint);
+            recommendedOrderQty = qty > 0 ? qty : stockStatus === "REORDER" ? 1 : null;
           }
         }
         return {
@@ -1357,9 +1405,7 @@ function registerRoutes(router2) {
       if (!mfr) return res.status(404).json({ message: "Manufacturer not found" });
       const today = /* @__PURE__ */ new Date();
       const todayStr = today.toISOString().slice(0, 10);
-      const expectedDelivery = new Date(today);
-      expectedDelivery.setDate(expectedDelivery.getDate() + mfr.standardLeadTimeDays);
-      const expectedDeliveryStr = expectedDelivery.toISOString().slice(0, 10);
+      const expectedDeliveryStr = calcExpectedDeliveryDate(today, mfr.standardLeadTimeDays).toISOString().slice(0, 10);
       const [po] = await db.insert(purchaseOrders).values({
         clientId,
         manufacturerId,
@@ -1447,12 +1493,7 @@ function registerRoutes(router2) {
       const newStatus = body.data.status;
       const [current] = await db.select().from(purchaseOrders).where(and(eq2(purchaseOrders.id, poId), eq2(purchaseOrders.clientId, clientId)));
       if (!current) return res.status(404).json({ message: "Purchase order not found" });
-      const validTransitions = {
-        APPROVED: "SENT",
-        SENT: "CONFIRMED",
-        CONFIRMED: "DELIVERED"
-      };
-      if (validTransitions[current.status] !== newStatus) {
+      if (!isValidPoTransition(current.status, newStatus)) {
         return res.status(400).json({ message: `Cannot transition from ${current.status} to ${newStatus}` });
       }
       const updates = { status: newStatus };
@@ -1461,9 +1502,7 @@ function registerRoutes(router2) {
         updates.sentAt = now;
         const [mfr] = await db.select({ standardLeadTimeDays: manufacturers.standardLeadTimeDays }).from(manufacturers).where(and(eq2(manufacturers.id, current.manufacturerId), eq2(manufacturers.clientId, clientId)));
         if (mfr) {
-          const expected = new Date(now);
-          expected.setDate(expected.getDate() + mfr.standardLeadTimeDays);
-          updates.expectedDeliveryDate = expected.toISOString().slice(0, 10);
+          updates.expectedDeliveryDate = calcExpectedDeliveryDate(now, mfr.standardLeadTimeDays).toISOString().slice(0, 10);
         }
       }
       const [updated] = await db.update(purchaseOrders).set(updates).where(and(eq2(purchaseOrders.id, poId), eq2(purchaseOrders.clientId, clientId))).returning();
@@ -1615,32 +1654,16 @@ function registerRoutes(router2) {
       const items = allProducts.map((p) => {
         const currentStock = stockMap.get(p.skuCode) ?? 0;
         const totalOut = depletionMap.get(p.skuCode) ?? 0;
-        const depletionRate = totalOut / window;
+        const depletionRate = calcDepletionRate(totalOut, window);
         const reorderPoint = p.reorderPoint;
-        let daysRemaining = null;
-        if (depletionRate > 0) {
-          daysRemaining = Math.round(currentStock / depletionRate * 10) / 10;
-        }
-        let projectedReorderDate = null;
-        if (depletionRate > 0 && reorderPoint !== null && reorderPoint !== void 0) {
-          const daysUntilReorder = (currentStock - reorderPoint) / depletionRate;
-          if (daysUntilReorder > 0) {
-            const reorderDate = new Date(today);
-            reorderDate.setDate(reorderDate.getDate() + Math.ceil(daysUntilReorder));
-            projectedReorderDate = reorderDate.toISOString().split("T")[0];
-          } else {
-            projectedReorderDate = today.toISOString().split("T")[0];
-          }
-        }
+        const daysRemaining = calcDaysRemaining(currentStock, depletionRate);
+        const projectedReorderDate = calcProjectedReorderDate(currentStock, reorderPoint, depletionRate, today);
         let status;
         if (reorderPoint === null || reorderPoint === void 0) {
           status = "NO_DATA";
-        } else if (currentStock <= reorderPoint) {
-          status = "REORDER";
-        } else if (currentStock <= reorderPoint * 1.25) {
-          status = "APPROACHING";
         } else {
-          status = "OK";
+          const stockStatus = calcStockStatus(currentStock, reorderPoint);
+          status = stockStatus === "N/A" ? "NO_DATA" : stockStatus;
         }
         return {
           skuCode: p.skuCode,
@@ -1656,12 +1679,7 @@ function registerRoutes(router2) {
           status
         };
       });
-      let overallStatus = "ALL_GOOD";
-      if (items.some((i) => i.status === "REORDER")) {
-        overallStatus = "ACTION_NEEDED";
-      } else if (items.some((i) => i.status === "APPROACHING")) {
-        overallStatus = "HEADS_UP";
-      }
+      const overallStatus = calcOverallStatus(items.map((i) => i.status));
       const ledgerRow = await db.select().from(systemSettings).where(and(eq2(systemSettings.clientId, clientId), eq2(systemSettings.key, "ledger_start_date"))).limit(1);
       const lastTxnRow = await db.select({ maxDate: sql2`max(${stockTransactions.createdAt})` }).from(stockTransactions).where(eq2(stockTransactions.clientId, clientId));
       const lastSalesRow = await db.select({ maxRef: sql2`max(${stockTransactions.reference})` }).from(stockTransactions).where(and(
