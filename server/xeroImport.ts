@@ -318,10 +318,14 @@ export function registerXeroRoutes(router: Router) {
   router.get("/api/xero/import/history", isAuthenticated, async (req, res) => {
     try {
       const clientId = getClientId(req);
-      // Find all distinct Xero import references
+      // Find all distinct Xero import periods, grouped by the period substring
+      // References are "INV-12345 (Xero import 2026-01-01 to 2026-03-31)"
+      // Extract the period part to group all invoices from the same import together
+      const periodExpr = sql<string>`substring(${stockTransactions.reference} from 'Xero import \\S+ to \\S+')`;
+
       const imports = await db
         .select({
-          reference: stockTransactions.reference,
+          period: periodExpr.as("period"),
           transactionCount: sql<number>`count(*)`.as("transaction_count"),
           totalUnits: sql<number>`sum(abs(${stockTransactions.quantity}))`.as("total_units"),
           importedAt: sql<string>`min(${stockTransactions.createdAt})`.as("imported_at"),
@@ -334,14 +338,13 @@ export function registerXeroRoutes(router: Router) {
             like(stockTransactions.reference, "%Xero import %")
           )
         )
-        .groupBy(stockTransactions.reference)
+        .groupBy(periodExpr)
         .orderBy(desc(sql`min(${stockTransactions.createdAt})`));
 
-      // For each import, parse the date range from the reference string
       const history = imports.map((imp) => {
-        const match = imp.reference?.match(/Xero import (\S+) to (\S+)/);
+        const match = imp.period?.match(/Xero import (\S+) to (\S+)/);
         return {
-          reference: imp.reference,
+          reference: imp.period,
           fromDate: match?.[1] ?? null,
           toDate: match?.[2] ?? null,
           transactionCount: Number(imp.transactionCount),

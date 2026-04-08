@@ -1918,8 +1918,9 @@ function registerXeroRoutes(router2) {
   router2.get("/api/xero/import/history", isAuthenticated, async (req, res) => {
     try {
       const clientId = getClientId(req);
+      const periodExpr = sql3`substring(${stockTransactions.reference} from 'Xero import \\S+ to \\S+')`;
       const imports = await db.select({
-        reference: stockTransactions.reference,
+        period: periodExpr.as("period"),
         transactionCount: sql3`count(*)`.as("transaction_count"),
         totalUnits: sql3`sum(abs(${stockTransactions.quantity}))`.as("total_units"),
         importedAt: sql3`min(${stockTransactions.createdAt})`.as("imported_at")
@@ -1929,11 +1930,11 @@ function registerXeroRoutes(router2) {
           eq3(stockTransactions.transactionType, "SALES_OUT"),
           like2(stockTransactions.reference, "%Xero import %")
         )
-      ).groupBy(stockTransactions.reference).orderBy(desc2(sql3`min(${stockTransactions.createdAt})`));
+      ).groupBy(periodExpr).orderBy(desc2(sql3`min(${stockTransactions.createdAt})`));
       const history = imports.map((imp) => {
-        const match = imp.reference?.match(/Xero import (\S+) to (\S+)/);
+        const match = imp.period?.match(/Xero import (\S+) to (\S+)/);
         return {
-          reference: imp.reference,
+          reference: imp.period,
           fromDate: match?.[1] ?? null,
           toDate: match?.[2] ?? null,
           transactionCount: Number(imp.transactionCount),
