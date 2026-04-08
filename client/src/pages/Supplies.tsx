@@ -317,7 +317,6 @@ export default function Supplies() {
           { id: "history", label: "History" },
           { id: "receive", label: "Receive" },
           { id: "send", label: "Send" },
-          { id: "import", label: "Import" },
         ]}
         activeTab={tab}
         onChange={(id) => {

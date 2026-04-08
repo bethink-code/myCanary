@@ -19,6 +19,7 @@ import Settings from "./pages/Settings";
 import PurchaseOrders from "./pages/PurchaseOrders";
 import StockAdjustment from "./pages/StockAdjustment";
 import Supplies from "./pages/Supplies";
+import SupplyImport from "./pages/SupplyImport";
 import SetupJourney from "./pages/SetupJourney";
 import NotificationBell from "./components/NotificationBell";
 import NotFound from "./pages/not-found";
@@ -257,7 +258,7 @@ function AppLayout() {
           <Route path="/pnp" element={<PnpWeekly />} />
           <Route path="/stock/delivery" element={<DeliveryReceipt />} />
           <Route path="/tools/opening-balance" element={<OpeningBalance />} />
-          <Route path="/tools/supply-import" element={<Supplies />} />
+          <Route path="/tools/supply-import" element={<SupplyImport />} />
           <Route path="/tools/adjustment" element={<StockAdjustment />} />
           <Route path="/tools/transfer" element={<TransferStock />} />
           <Route path="/xero/import" element={<XeroImport />} />
