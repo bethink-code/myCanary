@@ -43,7 +43,7 @@ __export(schema_exports, {
   rawMaterials: () => rawMaterials,
   sessions: () => sessions,
   stockTransactions: () => stockTransactions,
-  systemSettings: () => systemSettings2,
+  systemSettings: () => systemSettings,
   userClients: () => userClients,
   users: () => users
 });
@@ -280,7 +280,7 @@ var notifications = pgTable("notifications", {
   resourceId: varchar("resource_id", { length: 255 }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
 });
-var systemSettings2 = pgTable("system_settings", {
+var systemSettings = pgTable("system_settings", {
   id: serial("id").primaryKey(),
   clientId: integer("client_id").references(() => clients.id).notNull(),
   key: varchar("key", { length: 100 }).notNull(),
@@ -1563,7 +1563,7 @@ function registerXeroRoutes(router2) {
             mapped: true
           });
         }
-        const ledgerSetting = await db.select().from(systemSettings2).where(and2(eq3(systemSettings2.clientId, clientId), eq3(systemSettings2.key, "ledger_start_date"))).limit(1);
+        const ledgerSetting = await db.select().from(systemSettings).where(and2(eq3(systemSettings.clientId, clientId), eq3(systemSettings.key, "ledger_start_date"))).limit(1);
         res.json({
           fromDate,
           toDate,
@@ -1663,7 +1663,7 @@ function registerXeroRoutes(router2) {
   router2.get("/api/xero/import/ledger-date", isAuthenticated, async (req, res) => {
     try {
       const clientId = getClientId(req);
-      const ledgerSetting = await db.select().from(systemSettings2).where(and2(eq3(systemSettings2.clientId, clientId), eq3(systemSettings2.key, "ledger_start_date"))).limit(1);
+      const ledgerSetting = await db.select().from(systemSettings).where(and2(eq3(systemSettings.clientId, clientId), eq3(systemSettings.key, "ledger_start_date"))).limit(1);
       res.json({
         ledgerStartDate: ledgerSetting[0]?.value ?? null,
         hasOpeningBalance: ledgerSetting.length > 0
@@ -2150,7 +2150,7 @@ function getXeroRedirectUri() {
   return process.env.NODE_ENV === "production" ? `${process.env.PRODUCTION_URL}/auth/xero/callback` : "http://localhost:5000/auth/xero/callback";
 }
 async function getXeroTokens(clientId) {
-  const result = await db.select().from(systemSettings2).where(and4(eq5(systemSettings2.clientId, clientId), eq5(systemSettings2.key, "xero_tokens")));
+  const result = await db.select().from(systemSettings).where(and4(eq5(systemSettings.clientId, clientId), eq5(systemSettings.key, "xero_tokens")));
   if (result.length === 0 || !result[0].value) return null;
   try {
     return JSON.parse(result[0].value);
@@ -2159,12 +2159,12 @@ async function getXeroTokens(clientId) {
   }
 }
 async function saveXeroTokens(clientId, tokens) {
-  const existing = await db.select().from(systemSettings2).where(and4(eq5(systemSettings2.clientId, clientId), eq5(systemSettings2.key, "xero_tokens")));
+  const existing = await db.select().from(systemSettings).where(and4(eq5(systemSettings.clientId, clientId), eq5(systemSettings.key, "xero_tokens")));
   const value = JSON.stringify(tokens);
   if (existing.length > 0) {
-    await db.update(systemSettings2).set({ value, updatedAt: /* @__PURE__ */ new Date() }).where(and4(eq5(systemSettings2.clientId, clientId), eq5(systemSettings2.key, "xero_tokens")));
+    await db.update(systemSettings).set({ value, updatedAt: /* @__PURE__ */ new Date() }).where(and4(eq5(systemSettings.clientId, clientId), eq5(systemSettings.key, "xero_tokens")));
   } else {
-    await db.insert(systemSettings2).values({ clientId, key: "xero_tokens", value });
+    await db.insert(systemSettings).values({ clientId, key: "xero_tokens", value });
   }
 }
 async function refreshAccessToken(refreshToken) {
@@ -2258,11 +2258,11 @@ function registerXeroAuthRoutes(router2) {
         expiresAt: Date.now() + tokenData.expires_in * 1e3,
         tenantId
       });
-      const existing = await db.select().from(systemSettings2).where(and4(eq5(systemSettings2.clientId, clientId), eq5(systemSettings2.key, "xero_org_name")));
+      const existing = await db.select().from(systemSettings).where(and4(eq5(systemSettings.clientId, clientId), eq5(systemSettings.key, "xero_org_name")));
       if (existing.length > 0) {
-        await db.update(systemSettings2).set({ value: tenantName, updatedAt: /* @__PURE__ */ new Date() }).where(and4(eq5(systemSettings2.clientId, clientId), eq5(systemSettings2.key, "xero_org_name")));
+        await db.update(systemSettings).set({ value: tenantName, updatedAt: /* @__PURE__ */ new Date() }).where(and4(eq5(systemSettings.clientId, clientId), eq5(systemSettings.key, "xero_org_name")));
       } else {
-        await db.insert(systemSettings2).values({ clientId, key: "xero_org_name", value: tenantName });
+        await db.insert(systemSettings).values({ clientId, key: "xero_org_name", value: tenantName });
       }
       res.redirect(`${clientUrl}/settings?xero=connected&org=${encodeURIComponent(tenantName)}`);
     } catch (err) {
@@ -2273,7 +2273,7 @@ function registerXeroAuthRoutes(router2) {
   router2.get("/api/xero/status", isAuthenticated, async (req, res) => {
     const clientId = getClientId(req);
     const tokens = await getXeroTokens(clientId);
-    const orgName = await db.select().from(systemSettings2).where(and4(eq5(systemSettings2.clientId, clientId), eq5(systemSettings2.key, "xero_org_name")));
+    const orgName = await db.select().from(systemSettings).where(and4(eq5(systemSettings.clientId, clientId), eq5(systemSettings.key, "xero_org_name")));
     res.json({
       connected: !!tokens,
       organisationName: orgName[0]?.value ?? null,
@@ -2282,8 +2282,8 @@ function registerXeroAuthRoutes(router2) {
   });
   router2.post("/api/xero/disconnect", isAuthenticated, async (req, res) => {
     const clientId = getClientId(req);
-    await db.delete(systemSettings2).where(and4(eq5(systemSettings2.clientId, clientId), eq5(systemSettings2.key, "xero_tokens")));
-    await db.delete(systemSettings2).where(and4(eq5(systemSettings2.clientId, clientId), eq5(systemSettings2.key, "xero_org_name")));
+    await db.delete(systemSettings).where(and4(eq5(systemSettings.clientId, clientId), eq5(systemSettings.key, "xero_tokens")));
+    await db.delete(systemSettings).where(and4(eq5(systemSettings.clientId, clientId), eq5(systemSettings.key, "xero_org_name")));
     logAudit(req, "XERO_DISCONNECTED");
     res.json({ ok: true });
   });
@@ -2630,11 +2630,11 @@ function registerOpeningBalanceRoutes(router2) {
           await db.update(products).set({ reorderPointOverride: row.reorderPoint }).where(and5(eq6(products.clientId, clientId), eq6(products.skuCode, row.skuCode)));
         }
       }
-      const existingLedgerDate = await db.select().from(systemSettings2).where(and5(eq6(systemSettings2.clientId, clientId), eq6(systemSettings2.key, "ledger_start_date"))).limit(1);
+      const existingLedgerDate = await db.select().from(systemSettings).where(and5(eq6(systemSettings.clientId, clientId), eq6(systemSettings.key, "ledger_start_date"))).limit(1);
       if (existingLedgerDate.length > 0) {
-        await db.update(systemSettings2).set({ value: asOfDate, updatedAt: /* @__PURE__ */ new Date() }).where(and5(eq6(systemSettings2.clientId, clientId), eq6(systemSettings2.key, "ledger_start_date")));
+        await db.update(systemSettings).set({ value: asOfDate, updatedAt: /* @__PURE__ */ new Date() }).where(and5(eq6(systemSettings.clientId, clientId), eq6(systemSettings.key, "ledger_start_date")));
       } else {
-        await db.insert(systemSettings2).values({
+        await db.insert(systemSettings).values({
           clientId,
           key: "ledger_start_date",
           value: asOfDate
