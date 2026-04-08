@@ -351,25 +351,21 @@ export default function XeroImport() {
                 <thead>
                   <tr className="border-b border-border">
                     <th className="text-left px-5 py-2.5 font-medium text-slate-500 text-xs">Period</th>
-                    <th className="text-right px-5 py-2.5 font-medium text-slate-500 text-xs">Items</th>
-                    <th className="text-right px-5 py-2.5 font-medium text-slate-500 text-xs">Total Units</th>
-                    <th className="text-left px-5 py-2.5 font-medium text-slate-500 text-xs">Imported</th>
+                    <th className="text-right px-5 py-2.5 font-medium text-slate-500 text-xs">Transactions</th>
+                    <th className="text-right px-5 py-2.5 font-medium text-slate-500 text-xs">Units Sold</th>
+                    <th className="text-left px-5 py-2.5 font-medium text-slate-500 text-xs">Imported On</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {importHistory.map((entry) => {
-                    const from = entry.fromDate ? new Date(entry.fromDate) : null;
-                    const periodLabel = from
-                      ? from.toLocaleString("default", { month: "long", year: "numeric" })
+                    const periodLabel = entry.fromDate && entry.toDate
+                      ? `${formatDateShort(entry.fromDate)} — ${formatDateShort(entry.toDate)}`
                       : entry.reference;
 
                     return (
                       <tr key={entry.reference} className="hover:bg-slate-50">
                         <td className="px-5 py-2.5 font-medium text-slate-800">
                           {periodLabel}
-                          <span className="text-xs text-slate-400 ml-2">
-                            {entry.fromDate} — {entry.toDate}
-                          </span>
                         </td>
                         <td className="px-5 py-2.5 text-right font-mono text-slate-700">
                           {entry.transactionCount}
