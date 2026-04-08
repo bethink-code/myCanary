@@ -1,7 +1,7 @@
 import { BrowserRouter, Routes, Route, Link, Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "./hooks/useAuth";
 import { apiRequest } from "./lib/queryClient";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
 import Landing from "./pages/Landing";
 import Snapshot from "./pages/Snapshot";
 import Admin from "./pages/Admin";
@@ -17,6 +17,7 @@ import PnpWeekly from "./pages/PnpWeekly";
 import OpeningBalance from "./pages/OpeningBalance";
 import Settings from "./pages/Settings";
 import PurchaseOrders from "./pages/PurchaseOrders";
+import SetupJourney from "./pages/SetupJourney";
 import NotificationBell from "./components/NotificationBell";
 import NotFound from "./pages/not-found";
 import { useState, useRef, useEffect } from "react";
@@ -266,6 +267,7 @@ function AppLayout() {
           <Route path="/xero/import" element={<XeroImport />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/admin" element={<Admin />} />
+          <Route path="/setup" element={<SetupJourney />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </main>
@@ -309,7 +311,29 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <AppLayout />
+      <SetupGate />
     </BrowserRouter>
   );
+}
+
+function SetupGate() {
+  const { data: setupStatus, isLoading } = useQuery<{ setupComplete: boolean }>({
+    queryKey: ["setup-status"],
+    queryFn: () => apiRequest("/api/setup/status"),
+    staleTime: 30 * 1000,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin w-8 h-8 border-4 border-primary border-t-transparent rounded-full" />
+      </div>
+    );
+  }
+
+  if (setupStatus && !setupStatus.setupComplete) {
+    return <SetupJourney />;
+  }
+
+  return <AppLayout />;
 }

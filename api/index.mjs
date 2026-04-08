@@ -1433,6 +1433,113 @@ function registerRoutes(router2) {
       res.status(500).json({ message: "Failed to update purchase order status", error: err.message });
     }
   });
+  router2.get("/api/setup/status", isAuthenticated, async (req, res) => {
+    try {
+      const clientId = getClientId(req);
+      const productRows = await db.select({ cnt: count() }).from(products).where(eq2(products.clientId, clientId));
+      const productCount = Number(productRows[0]?.cnt ?? 0);
+      const productsComplete = productCount > 0;
+      const mfgRows = await db.select({
+        total: count(),
+        missingEmail: sql2`SUM(CASE WHEN ${manufacturers.email} IS NULL OR ${manufacturers.email} = '' THEN 1 ELSE 0 END)`
+      }).from(manufacturers).where(eq2(manufacturers.clientId, clientId));
+      const mfgTotal = Number(mfgRows[0]?.total ?? 0);
+      const mfgMissingEmail = Number(mfgRows[0]?.missingEmail ?? 0);
+      const suppliersComplete = mfgTotal > 0 && mfgMissingEmail === 0;
+      const ledgerRow = await db.select().from(systemSettings).where(and(eq2(systemSettings.clientId, clientId), eq2(systemSettings.key, "ledger_start_date"))).limit(1);
+      const ledgerStartDate = ledgerRow[0]?.value ?? null;
+      const openingStockComplete = !!ledgerStartDate;
+      const activeProductRows = await db.select({ cnt: count() }).from(products).where(and(eq2(products.clientId, clientId), eq2(products.isActive, true)));
+      const activeTotal = Number(activeProductRows[0]?.cnt ?? 0);
+      const rpRows = await db.select({ cnt: count() }).from(products).where(and(
+        eq2(products.clientId, clientId),
+        eq2(products.isActive, true),
+        sql2`${products.reorderPointOverride} > 0`
+      ));
+      const rpCount = Number(rpRows[0]?.cnt ?? 0);
+      const reorderPointsComplete = activeTotal > 0 && rpCount / activeTotal > 0.8;
+      const salesRows = await db.select({ cnt: count() }).from(stockTransactions).where(and(
+        eq2(stockTransactions.clientId, clientId),
+        eq2(stockTransactions.transactionType, "SALES_OUT")
+      ));
+      const salesCount = Number(salesRows[0]?.cnt ?? 0);
+      const salesDataComplete = salesCount > 0;
+      const clientRow = await db.select({ setupComplete: clients.setupComplete }).from(clients).where(eq2(clients.id, clientId)).limit(1);
+      const productsDesc = productsComplete ? `${productCount} products configured` : "No products configured yet";
+      let suppliersDesc;
+      if (mfgTotal === 0) {
+        suppliersDesc = "No manufacturers added yet";
+      } else if (mfgMissingEmail > 0) {
+        suppliersDesc = `${mfgTotal} manufacturers \u2014 emails not set`;
+      } else {
+        suppliersDesc = `${mfgTotal} manufacturers configured`;
+      }
+      const openingStockDesc = openingStockComplete ? `Opening balance imported as of ${ledgerStartDate}` : "No opening balance imported yet";
+      const reorderPointsDesc = activeTotal > 0 ? `${rpCount} of ${activeTotal} products have reorder points` : "No active products yet";
+      let salesDataDesc = "No sales data imported yet";
+      if (salesDataComplete) {
+        const lastSalesRow = await db.select({ maxRef: sql2`max(${stockTransactions.reference})` }).from(stockTransactions).where(and(
+          eq2(stockTransactions.clientId, clientId),
+          eq2(stockTransactions.transactionType, "SALES_OUT"),
+          like(stockTransactions.reference, "%Xero import %")
+        ));
+        if (lastSalesRow[0]?.maxRef) {
+          const match = lastSalesRow[0].maxRef.match(/to\s+(\d{4}-\d{2}-\d{2})/);
+          salesDataDesc = match ? `Sales imported to ${match[1]}` : "Sales data imported";
+        } else {
+          salesDataDesc = "Sales data imported";
+        }
+      }
+      res.json({
+        setupComplete: clientRow[0]?.setupComplete ?? false,
+        steps: {
+          products: { complete: productsComplete, count: productCount, description: productsDesc },
+          suppliers: {
+            complete: suppliersComplete,
+            count: mfgTotal,
+            ...mfgMissingEmail > 0 ? { missing: "email" } : {},
+            description: suppliersDesc
+          },
+          openingStock: { complete: openingStockComplete, description: openingStockDesc },
+          reorderPoints: { complete: reorderPointsComplete, count: rpCount, total: activeTotal, description: reorderPointsDesc },
+          salesData: { complete: salesDataComplete, description: salesDataDesc }
+        }
+      });
+    } catch (err) {
+      res.status(500).json({ message: "Failed to fetch setup status", error: err.message });
+    }
+  });
+  router2.post("/api/setup/complete", isAuthenticated, async (req, res) => {
+    try {
+      const clientId = getClientId(req);
+      const [productRows, mfgRows, ledgerRow, activeRows, rpRows, salesRows] = await Promise.all([
+        db.select({ cnt: count() }).from(products).where(eq2(products.clientId, clientId)),
+        db.select({
+          total: count(),
+          missingEmail: sql2`SUM(CASE WHEN ${manufacturers.email} IS NULL OR ${manufacturers.email} = '' THEN 1 ELSE 0 END)`
+        }).from(manufacturers).where(eq2(manufacturers.clientId, clientId)),
+        db.select().from(systemSettings).where(and(eq2(systemSettings.clientId, clientId), eq2(systemSettings.key, "ledger_start_date"))).limit(1),
+        db.select({ cnt: count() }).from(products).where(and(eq2(products.clientId, clientId), eq2(products.isActive, true))),
+        db.select({ cnt: count() }).from(products).where(and(eq2(products.clientId, clientId), eq2(products.isActive, true), sql2`${products.reorderPointOverride} > 0`)),
+        db.select({ cnt: count() }).from(stockTransactions).where(and(eq2(stockTransactions.clientId, clientId), eq2(stockTransactions.transactionType, "SALES_OUT")))
+      ]);
+      const productsOk = Number(productRows[0]?.cnt ?? 0) > 0;
+      const mfgTotal = Number(mfgRows[0]?.total ?? 0);
+      const suppliersOk = mfgTotal > 0 && Number(mfgRows[0]?.missingEmail ?? 0) === 0;
+      const openingOk = !!ledgerRow[0]?.value;
+      const activeTotal = Number(activeRows[0]?.cnt ?? 0);
+      const rpOk = activeTotal > 0 && Number(rpRows[0]?.cnt ?? 0) / activeTotal > 0.8;
+      const salesOk = Number(salesRows[0]?.cnt ?? 0) > 0;
+      if (!productsOk || !suppliersOk || !openingOk || !rpOk || !salesOk) {
+        return res.status(400).json({ message: "Not all setup steps are complete" });
+      }
+      await db.update(clients).set({ setupComplete: true }).where(eq2(clients.id, clientId));
+      logAudit(req, "SETUP_COMPLETE", { resourceType: "Client", resourceId: String(clientId) });
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ message: "Failed to complete setup", error: err.message });
+    }
+  });
   router2.get("/api/snapshot/overview", isAuthenticated, async (req, res) => {
     try {
       const clientId = getClientId(req);
