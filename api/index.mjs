@@ -369,7 +369,7 @@ passport.use(
     {
       clientID: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      callbackURL: "/auth/callback",
+      callbackURL: process.env.NODE_ENV === "production" ? "https://www.mycanary.biz/auth/callback" : "/auth/callback",
       scope: [
         "profile",
         "email",
@@ -2525,7 +2525,7 @@ var PgSession = connectPgSimple(session);
 app.use(helmet());
 app.use(
   cors({
-    origin: process.env.PRODUCTION_URL,
+    origin: ["https://mycanary.biz", "https://www.mycanary.biz"],
     credentials: true
   })
 );

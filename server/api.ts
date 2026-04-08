@@ -17,7 +17,7 @@ const PgSession = connectPgSimple(session);
 app.use(helmet());
 app.use(
   cors({
-    origin: process.env.PRODUCTION_URL,
+    origin: ["https://mycanary.biz", "https://www.mycanary.biz"],
     credentials: true,
   })
 );
