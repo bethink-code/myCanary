@@ -109,6 +109,7 @@ export default function Supplies() {
 
   // ---- Import state ----
   const [importStep, setImportStep] = useState<1 | 2 | 3>(1);
+  const [importMode, setImportMode] = useState("fetch");
   const [importFile, setImportFile] = useState<File | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [previewRows, setPreviewRows] = useState<ImportPreviewRow[]>([]);
@@ -220,6 +221,16 @@ export default function Supplies() {
     },
   });
 
+  const sheetPullMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("/api/supplies/import/pull-sheet") as Promise<ImportPreviewResponse>;
+    },
+    onSuccess: (data) => {
+      setPreviewRows(data.rows);
+      setImportStep(2);
+    },
+  });
+
   const importCommitMutation = useMutation({
     mutationFn: async () => {
       return apiRequest("/api/supplies/import/commit", {
@@ -280,6 +291,9 @@ export default function Supplies() {
       )}
       {sendMutation.isPending && (
         <LoadingOverlay message="Recording supply send..." />
+      )}
+      {sheetPullMutation.isPending && (
+        <LoadingOverlay message="Pulling supply data from Google Sheets..." submessage="Reading RAW MATERIALS and PACKAGING tabs." />
       )}
       {importPreviewMutation.isPending && (
         <LoadingOverlay message="Parsing spreadsheet..." />
@@ -697,70 +711,107 @@ export default function Supplies() {
       {/* ===================== IMPORT TAB ===================== */}
       {tab === "import" && importStep === 1 && (
         <div className="space-y-4">
-          <div className="bg-white rounded-xl border border-border p-6 space-y-6">
-            <div>
-              <h2 className="text-lg font-semibold text-slate-800 mb-1">
-                Import from Animal Farm Spreadsheet
-              </h2>
-              <p className="text-sm text-slate-500">
-                Upload the Animal Farm supply list spreadsheet to bulk-import or update supplies.
-              </p>
-            </div>
+          <PageTabs
+            tabs={[{ id: "fetch", label: "Fetch" }, { id: "upload", label: "Upload" }]}
+            activeTab={importMode}
+            onChange={(id) => setImportMode(id)}
+          />
 
-            {/* Dropzone */}
-            <div
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
-              className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer ${
-                dragOver
-                  ? "border-primary bg-primary/5"
-                  : importFile
-                    ? "border-green-300 bg-green-50"
-                    : "border-slate-300 hover:border-slate-400"
-              }`}
-              onClick={() => document.getElementById("supply-file-input")?.click()}
-            >
-              <input
-                id="supply-file-input"
-                type="file"
-                accept=".xlsx,.xls"
-                onChange={handleFileChange}
-                className="hidden"
-              />
-              {importFile ? (
-                <div>
-                  <div className="text-green-700 font-medium">{importFile.name}</div>
-                  <div className="text-sm text-slate-500 mt-1">
-                    {(importFile.size / 1024).toFixed(1)} KB — Click or drop to replace
-                  </div>
-                </div>
-              ) : (
-                <div>
-                  <div className="text-slate-600 font-medium">
-                    Drop your Excel file here, or click to browse
-                  </div>
-                  <div className="text-sm text-slate-400 mt-1">
-                    Accepts .xlsx and .xls files
-                  </div>
-                </div>
+          {/* Fetch from Google Sheets */}
+          {importMode === "fetch" && (
+            <div className="bg-white rounded-xl border border-border p-6 space-y-6">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-800 mb-1">
+                  Pull from Animal Farm Google Sheet
+                </h2>
+                <p className="text-sm text-slate-500">
+                  Reads the RAW MATERIALS and PACKAGING tabs directly from Google Drive.
+                </p>
+              </div>
+
+              {sheetPullMutation.isError && (
+                <ErrorBox>{(sheetPullMutation.error as any)?.message ?? "Pull failed"}</ErrorBox>
               )}
+
+              <StickyActionBar>
+                <button
+                  onClick={() => sheetPullMutation.mutate()}
+                  disabled={sheetPullMutation.isPending}
+                  className="px-6 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {sheetPullMutation.isPending ? "Pulling from Google Sheets..." : "Pull Supply Data from Google Sheets"}
+                </button>
+              </StickyActionBar>
             </div>
+          )}
 
-            {importPreviewMutation.isError && (
-              <ErrorBox>{(importPreviewMutation.error as any)?.message ?? "Upload failed"}</ErrorBox>
-            )}
+          {/* Upload Excel file */}
+          {importMode === "upload" && (
+            <div className="bg-white rounded-xl border border-border p-6 space-y-6">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-800 mb-1">
+                  Upload Animal Farm Spreadsheet
+                </h2>
+                <p className="text-sm text-slate-500">
+                  Upload the Animal Farm Excel file to import RAW MATERIALS and PACKAGING data.
+                </p>
+              </div>
 
-            <StickyActionBar>
-              <button
-                onClick={() => importPreviewMutation.mutate()}
-                disabled={!importFile || importPreviewMutation.isPending}
-                className="px-6 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+              {/* Dropzone */}
+              <div
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer ${
+                  dragOver
+                    ? "border-primary bg-primary/5"
+                    : importFile
+                      ? "border-green-300 bg-green-50"
+                      : "border-slate-300 hover:border-slate-400"
+                }`}
+                onClick={() => document.getElementById("supply-file-input")?.click()}
               >
-                {importPreviewMutation.isPending ? "Uploading..." : "Upload & Preview"}
-              </button>
-            </StickyActionBar>
-          </div>
+                <input
+                  id="supply-file-input"
+                  type="file"
+                  accept=".xlsx,.xls"
+                  onChange={handleFileChange}
+                  className="hidden"
+                />
+                {importFile ? (
+                  <div>
+                    <div className="text-green-700 font-medium">{importFile.name}</div>
+                    <div className="text-sm text-slate-500 mt-1">
+                      {(importFile.size / 1024).toFixed(1)} KB — Click or drop to replace
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <div className="text-slate-600 font-medium">
+                      Drop your Excel file here, or click to browse
+                    </div>
+                    <div className="text-sm text-slate-400 mt-1">
+                      Accepts .xlsx and .xls files
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {importPreviewMutation.isError && (
+                <ErrorBox>{(importPreviewMutation.error as any)?.message ?? "Upload failed"}</ErrorBox>
+              )}
+
+              <StickyActionBar>
+                <button
+                  onClick={() => importPreviewMutation.mutate()}
+                  disabled={!importFile || importPreviewMutation.isPending}
+                  className="px-6 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {importPreviewMutation.isPending ? "Uploading..." : "Upload & Preview"}
+                </button>
+              </StickyActionBar>
+            </div>
+          )}
         </div>
       )}
 

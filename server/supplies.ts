@@ -701,4 +701,76 @@ export function registerSupplyRoutes(router: Router) {
       res.status(500).json({ message: "Failed to commit supply import", error: err.message });
     }
   });
+
+  // ─── Pull from Google Sheets ─────────────────────
+  router.get("/api/supplies/import/pull-sheet", isAuthenticated, async (req, res) => {
+    try {
+      const googleAccessToken = (req.user as any)?.googleAccessToken;
+      if (!googleAccessToken) {
+        return res.status(401).json({
+          message: "Google Sheets access not available. Please sign out and sign in again to grant Sheets permission.",
+          needsReauth: true,
+        });
+      }
+
+      const sheetId = process.env.ANIMAL_FARM_SHEET_ID;
+      if (!sheetId) {
+        return res.status(400).json({ message: "ANIMAL_FARM_SHEET_ID not configured." });
+      }
+
+      // Export as xlsx so we can use the same parsing functions
+      const exportUrl = `https://www.googleapis.com/drive/v3/files/${sheetId}/export?mimeType=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`;
+      const exportRes = await fetch(exportUrl, {
+        headers: { Authorization: `Bearer ${googleAccessToken}` },
+      });
+
+      if (!exportRes.ok) {
+        // Try direct download (for uploaded xlsx files)
+        const driveUrl = `https://www.googleapis.com/drive/v3/files/${sheetId}?alt=media`;
+        const driveRes = await fetch(driveUrl, {
+          headers: { Authorization: `Bearer ${googleAccessToken}` },
+        });
+
+        if (!driveRes.ok) {
+          const status = driveRes.status;
+          if (status === 401 || status === 403) {
+            return res.status(401).json({ message: "Google Drive permission denied or token expired. Please sign out and sign in again.", needsReauth: true });
+          }
+          return res.status(502).json({ message: `Could not access the Animal Farm file. (${status})` });
+        }
+
+        const buffer = Buffer.from(await driveRes.arrayBuffer());
+        const wb = XLSX.read(buffer, { type: "buffer" });
+        return res.json(parseWorkbook(wb, req));
+      }
+
+      const buffer = Buffer.from(await exportRes.arrayBuffer());
+      const wb = XLSX.read(buffer, { type: "buffer" });
+      res.json(parseWorkbook(wb, req));
+    } catch (err: any) {
+      console.error("Google Sheets pull error:", err);
+      res.status(500).json({ message: "Failed to pull from Google Sheets", error: err.message });
+    }
+  });
+
+  function parseWorkbook(wb: XLSX.WorkBook, req: any) {
+    const clientId = getClientId(req);
+    const parsed: ParsedSupplyRow[] = [];
+
+    const rawSheet = wb.Sheets["RAW MATERIALS"];
+    if (rawSheet) parsed.push(...parseRawMaterialsTab(rawSheet));
+
+    const packSheet = wb.Sheets["PACKAGING"];
+    if (packSheet) parsed.push(...parsePackagingTab(packSheet));
+
+    return {
+      rows: parsed,
+      summary: {
+        totalRows: parsed.length,
+        rawMaterials: parsed.filter((r) => r.category === "RAW_MATERIAL").length,
+        packaging: parsed.filter((r) => r.category === "PACKAGING").length,
+      },
+      source: "Google Sheets (live)",
+    };
+  }
 }
