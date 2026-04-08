@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "../lib/queryClient";
 import { Link } from "react-router-dom";
 import StickyActionBar from "../components/StickyActionBar";
@@ -66,6 +66,7 @@ interface ProductOption {
 }
 
 export default function PnpWeekly() {
+  const qc = useQueryClient();
   const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1);
 
   // Step 1 state
@@ -208,6 +209,9 @@ export default function PnpWeekly() {
     },
     onSuccess: (data) => {
       setDispatchResult(data);
+      qc.invalidateQueries({ queryKey: ["stock-summary"] });
+      qc.invalidateQueries({ queryKey: ["snapshot-overview"] });
+      qc.invalidateQueries({ queryKey: ["snapshot-rhythm"] });
       setStep(5);
     },
   });

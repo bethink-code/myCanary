@@ -137,6 +137,7 @@ export default function OrderDetail() {
       }),
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["orders"] });
+      queryClient.invalidateQueries({ queryKey: ["snapshot-overview"] });
       navigate(`/orders/${data.id}`);
     },
   });
@@ -168,6 +169,7 @@ export default function OrderDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["order", id] });
       queryClient.invalidateQueries({ queryKey: ["orders"] });
+      queryClient.invalidateQueries({ queryKey: ["snapshot-overview"] });
     },
   });
 

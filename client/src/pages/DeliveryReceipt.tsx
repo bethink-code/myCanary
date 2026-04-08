@@ -100,6 +100,7 @@ export default function DeliveryReceipt() {
       }
 
       qc.invalidateQueries({ queryKey: ["stock-summary"] });
+      qc.invalidateQueries({ queryKey: ["snapshot-overview"] });
       qc.invalidateQueries({ queryKey: ["batches"] });
       navigate("/stock");
     } catch (err: any) {

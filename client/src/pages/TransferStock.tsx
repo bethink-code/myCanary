@@ -48,6 +48,7 @@ export default function TransferStock() {
       setCases(0);
       setError("");
       qc.invalidateQueries({ queryKey: ["stock-summary"] });
+      qc.invalidateQueries({ queryKey: ["snapshot-overview"] });
     },
     onError: (err: any) => {
       setError(err.message ?? "Transfer failed.");

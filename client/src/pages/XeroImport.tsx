@@ -227,6 +227,8 @@ export default function XeroImport() {
       setCommitCount(data.transactionsCreated);
       qc.invalidateQueries({ queryKey: ["xero-import-history"] });
       qc.invalidateQueries({ queryKey: ["stock-summary"] });
+      qc.invalidateQueries({ queryKey: ["snapshot-overview"] });
+      qc.invalidateQueries({ queryKey: ["snapshot-rhythm"] });
       setStep(3);
     },
   });
