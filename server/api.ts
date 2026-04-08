@@ -14,6 +14,9 @@ import { registerOpeningBalanceRoutes } from "./openingBalanceImport";
 const app = express();
 const PgSession = connectPgSimple(session);
 
+// Trust Vercel's proxy so Express sees HTTPS, not HTTP
+app.set("trust proxy", 1);
+
 app.use(helmet());
 app.use(
   cors({

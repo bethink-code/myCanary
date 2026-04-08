@@ -2522,6 +2522,7 @@ function registerOpeningBalanceRoutes(router2) {
 // server/api.ts
 var app = express();
 var PgSession = connectPgSimple(session);
+app.set("trust proxy", 1);
 app.use(helmet());
 app.use(
   cors({
