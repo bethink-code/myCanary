@@ -351,7 +351,7 @@ export default function XeroImport() {
                 <thead>
                   <tr className="border-b border-border">
                     <th className="text-left px-5 py-2.5 font-medium text-slate-500 text-xs">Period</th>
-                    <th className="text-right px-5 py-2.5 font-medium text-slate-500 text-xs">Transactions</th>
+                    <th className="text-right px-5 py-2.5 font-medium text-slate-500 text-xs">Invoices</th>
                     <th className="text-right px-5 py-2.5 font-medium text-slate-500 text-xs">Units Sold</th>
                     <th className="text-left px-5 py-2.5 font-medium text-slate-500 text-xs">Imported On</th>
                   </tr>
