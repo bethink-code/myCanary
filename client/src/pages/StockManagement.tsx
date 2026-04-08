@@ -102,7 +102,7 @@ export default function StockManagement() {
             <h3 className="font-semibold text-green-800 text-sm mb-2">Stock In (adds inventory)</h3>
             <div className="flex flex-wrap gap-2">
               <Link
-                to="/stock/opening-balance"
+                to="/tools/opening-balance"
                 className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700"
               >
                 Import Opening Balances
@@ -134,7 +134,7 @@ export default function StockManagement() {
                 PnP Dispatch (8/8)
               </Link>
               <Link
-                to="/stock/transfer"
+                to="/tools/transfer"
                 className="px-3 py-1.5 bg-white border border-amber-300 text-amber-700 rounded-lg text-xs font-medium hover:bg-amber-100"
               >
                 Transfer THH → 8/8
@@ -285,7 +285,7 @@ export default function StockManagement() {
                       </td>
                       <td className="px-4 py-3">
                         <Link
-                          to={`/stock/adjustment?sku=${item.skuCode}`}
+                          to={`/tools/adjustment?sku=${item.skuCode}`}
                           className="text-xs text-slate-400 hover:text-primary"
                         >
                           Adjust

@@ -57,7 +57,7 @@ const STEPS: StepConfig[] = [
     title: "Your Opening Stock",
     explanation:
       "Your starting stock levels. This is the baseline the canary measures everything against.",
-    link: "/stock/opening-balance",
+    link: "/tools/opening-balance",
     linkLabel: "View Opening Balance",
   },
   {

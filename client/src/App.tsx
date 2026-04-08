@@ -26,16 +26,20 @@ import { useState, useRef, useEffect } from "react";
 
 const STOCK_LINKS = [
   { to: "/stock", label: "Stock Levels" },
+  { to: "/stock/supplies", label: "Supplies" },
   { to: "/orders", label: "Orders" },
   { to: "/pnp", label: "PnP Weekly" },
   { to: "/xero/import", label: "Xero Import" },
   { to: "/stock/reorder", label: "Reorder" },
   { to: "/stock/purchase-orders", label: "Purchase Orders" },
   { to: "/stock/delivery", label: "Record Delivery" },
-  { to: "/stock/adjustment", label: "Stock Adjustment" },
-  { to: "/stock/transfer", label: "Transfer" },
-  { to: "/stock/supplies", label: "Supplies" },
-  { to: "/stock/opening-balance", label: "Opening Balance" },
+];
+
+const TOOLS_LINKS = [
+  { to: "/tools/opening-balance", label: "Opening Balance Import" },
+  { to: "/tools/supply-import", label: "Supply Import" },
+  { to: "/tools/adjustment", label: "Stock Adjustment" },
+  { to: "/tools/transfer", label: "Stock Transfer" },
 ];
 
 function TermsModal({ onAccept }: { onAccept: () => void }) {
@@ -59,22 +63,16 @@ function TermsModal({ onAccept }: { onAccept: () => void }) {
   );
 }
 
-function StockDropdown() {
+function NavDropdown({ label, links, isActiveRoute }: { label: string; links: typeof STOCK_LINKS; isActiveRoute: (pathname: string) => boolean }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const location = useLocation();
 
-  // Close on route change
-  useEffect(() => {
-    setOpen(false);
-  }, [location.pathname]);
+  useEffect(() => { setOpen(false); }, [location.pathname]);
 
-  // Close on outside click
   useEffect(() => {
     function handleClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     }
     if (open) {
       document.addEventListener("mousedown", handleClick);
@@ -82,41 +80,27 @@ function StockDropdown() {
     }
   }, [open]);
 
-  const isStockRoute =
-    location.pathname.startsWith("/stock") ||
-    location.pathname.startsWith("/orders") ||
-    location.pathname.startsWith("/pnp") ||
-    location.pathname.startsWith("/xero");
+  const active = isActiveRoute(location.pathname);
 
   return (
     <div ref={ref} className="relative">
       <button
         onClick={() => setOpen(!open)}
         className={`text-sm flex items-center gap-1 transition-colors ${
-          isStockRoute ? "text-slate-900 font-medium" : "text-slate-600 hover:text-slate-900"
+          active ? "text-slate-900 font-medium" : "text-slate-600 hover:text-slate-900"
         }`}
       >
-        Stock
-        <svg
-          className={`w-3.5 h-3.5 transition-transform ${open ? "rotate-180" : ""}`}
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          strokeWidth={2}
-        >
+        {label}
+        <svg className={`w-3.5 h-3.5 transition-transform ${open ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
         </svg>
       </button>
       {open && (
-        <div className="absolute top-full left-0 mt-2 w-52 bg-white rounded-xl border border-border shadow-lg py-2 z-50">
-          {STOCK_LINKS.map((link) => (
-            <Link
-              key={link.to}
-              to={link.to}
+        <div className="absolute top-full left-0 mt-2 w-56 bg-white rounded-xl border border-border shadow-lg py-2 z-50">
+          {links.map((link) => (
+            <Link key={link.to} to={link.to}
               className={`block px-4 py-2 text-sm transition-colors ${
-                location.pathname === link.to
-                  ? "text-primary bg-slate-50 font-medium"
-                  : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+                location.pathname === link.to ? "text-primary bg-slate-50 font-medium" : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
               }`}
             >
               {link.label}
@@ -128,29 +112,18 @@ function StockDropdown() {
   );
 }
 
-function MobileStockMenu({ open, onClose }: { open: boolean; onClose: () => void }) {
+function MobileSubMenu({ open, onClose, links }: { open: boolean; onClose: () => void; links: typeof STOCK_LINKS }) {
   const location = useLocation();
-
-  useEffect(() => {
-    onClose();
-  }, [location.pathname]);
-
+  useEffect(() => { onClose(); }, [location.pathname]);
   if (!open) return null;
-
   return (
     <div className="md:hidden border-t border-border bg-white px-4 py-3 space-y-1">
-      {STOCK_LINKS.map((link) => (
-        <Link
-          key={link.to}
-          to={link.to}
+      {links.map((link) => (
+        <Link key={link.to} to={link.to}
           className={`block px-3 py-2 rounded-lg text-sm ${
-            location.pathname === link.to
-              ? "text-primary bg-slate-50 font-medium"
-              : "text-slate-600 hover:bg-slate-50"
+            location.pathname === link.to ? "text-primary bg-slate-50 font-medium" : "text-slate-600 hover:bg-slate-50"
           }`}
-        >
-          {link.label}
-        </Link>
+        >{link.label}</Link>
       ))}
     </div>
   );
@@ -161,6 +134,7 @@ function AppLayout() {
   const qc = useQueryClient();
   const location = useLocation();
   const [mobileStockOpen, setMobileStockOpen] = useState(false);
+  const [mobileToolsOpen, setMobileToolsOpen] = useState(false);
 
   const handleLogout = async () => {
     await apiRequest("/auth/logout", { method: "POST" });
@@ -195,7 +169,16 @@ function AppLayout() {
                 >
                   Snapshot
                 </Link>
-                <StockDropdown />
+                <NavDropdown
+                  label="Stock"
+                  links={STOCK_LINKS}
+                  isActiveRoute={(p) => p.startsWith("/stock") || p.startsWith("/orders") || p.startsWith("/pnp") || p.startsWith("/xero")}
+                />
+                <NavDropdown
+                  label="Tools"
+                  links={TOOLS_LINKS}
+                  isActiveRoute={(p) => p.startsWith("/tools")}
+                />
                 <Link
                   to="/settings"
                   className={`text-sm transition-colors ${
@@ -216,19 +199,24 @@ function AppLayout() {
                   Snapshot
                 </Link>
                 <button
-                  onClick={() => setMobileStockOpen(!mobileStockOpen)}
+                  onClick={() => { setMobileStockOpen(!mobileStockOpen); setMobileToolsOpen(false); }}
                   className={`text-sm flex items-center gap-1 ${
                     isStockRoute ? "text-slate-900 font-medium" : "text-slate-600"
                   }`}
                 >
                   Stock
-                  <svg
-                    className={`w-3.5 h-3.5 transition-transform ${mobileStockOpen ? "rotate-180" : ""}`}
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                  >
+                  <svg className={`w-3.5 h-3.5 transition-transform ${mobileStockOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                <button
+                  onClick={() => { setMobileToolsOpen(!mobileToolsOpen); setMobileStockOpen(false); }}
+                  className={`text-sm flex items-center gap-1 ${
+                    location.pathname.startsWith("/tools") ? "text-slate-900 font-medium" : "text-slate-600"
+                  }`}
+                >
+                  Tools
+                  <svg className={`w-3.5 h-3.5 transition-transform ${mobileToolsOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
                   </svg>
                 </button>
@@ -252,7 +240,8 @@ function AppLayout() {
             </div>
           </div>
         </div>
-        <MobileStockMenu open={mobileStockOpen} onClose={() => setMobileStockOpen(false)} />
+        <MobileSubMenu open={mobileStockOpen} onClose={() => setMobileStockOpen(false)} links={STOCK_LINKS} />
+        <MobileSubMenu open={mobileToolsOpen} onClose={() => setMobileToolsOpen(false)} links={TOOLS_LINKS} />
       </nav>
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-24">
         <Routes>
@@ -261,15 +250,16 @@ function AppLayout() {
           <Route path="/stock/product/:skuCode" element={<ProductDetail />} />
           <Route path="/stock/reorder" element={<ReorderWorkflow />} />
           <Route path="/stock/purchase-orders" element={<PurchaseOrders />} />
-          <Route path="/stock/adjustment" element={<StockAdjustment />} />
           <Route path="/stock/supplies" element={<Supplies />} />
-          <Route path="/stock/transfer" element={<TransferStock />} />
           <Route path="/orders" element={<OrderList />} />
           <Route path="/orders/new" element={<OrderDetail />} />
           <Route path="/orders/:id" element={<OrderDetail />} />
           <Route path="/pnp" element={<PnpWeekly />} />
           <Route path="/stock/delivery" element={<DeliveryReceipt />} />
-          <Route path="/stock/opening-balance" element={<OpeningBalance />} />
+          <Route path="/tools/opening-balance" element={<OpeningBalance />} />
+          <Route path="/tools/supply-import" element={<Supplies />} />
+          <Route path="/tools/adjustment" element={<StockAdjustment />} />
+          <Route path="/tools/transfer" element={<TransferStock />} />
           <Route path="/xero/import" element={<XeroImport />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/admin" element={<Admin />} />
