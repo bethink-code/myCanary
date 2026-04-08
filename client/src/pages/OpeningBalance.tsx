@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "../lib/queryClient";
+import { formatDateShort } from "../lib/formatters";
 import { invalidateStockData } from "../lib/invalidation";
 import { Link, useNavigate } from "react-router-dom";
 import LoadingOverlay from "../components/LoadingOverlay";
@@ -96,6 +97,11 @@ export default function OpeningBalance() {
     },
   });
 
+  const { data: ledgerData } = useQuery<{ ledgerStartDate: string | null; hasOpeningBalance: boolean }>({
+    queryKey: ["ledger-date"],
+    queryFn: () => apiRequest("/api/xero/import/ledger-date"),
+  });
+
   return (
     <div className="space-y-6">
       {sheetPullMutation.isPending && (
@@ -130,6 +136,14 @@ export default function OpeningBalance() {
           Back to Stock Levels
         </Link>
       </div>
+
+      {/* Current status */}
+      {ledgerData?.hasOpeningBalance && (
+        <div className="bg-green-50 border border-green-200 rounded-xl px-5 py-3 text-sm text-green-800">
+          Opening balance imported as of <strong>{formatDateShort(ledgerData.ledgerStartDate)}</strong>.
+          Re-importing will replace the existing data.
+        </div>
+      )}
 
       {/* Step 1: Source selection */}
       {step === 1 && (
