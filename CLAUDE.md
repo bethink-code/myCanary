@@ -1,44 +1,68 @@
-# MyCanary — Stock Management Early Warning Platform
+# MyCanary — Project Guide
 
-## Project
-Multi-tenant stock management early warning system for small product-based businesses.
-First client: The Herbal Horse & Pet (THH). Domain: mycanary.biz.
+## What Is This
+Multi-tenant stock management early warning system. First client: The Herbal Horse & Pet (THH).
+Domain: mycanary.biz. Phase 1 = human in the loop (copy/paste). No autonomous actions.
 
 ## Stack
 - **Frontend**: React 18 + Vite + Tailwind CSS v4 + shadcn/ui (Radix) + Recharts
 - **Backend**: Express + TypeScript (tsx for dev, esbuild for prod)
 - **ORM**: Drizzle ORM
-- **Database**: Neon PostgreSQL (dev + prod branches)
+- **Database**: Neon PostgreSQL (dev + prod)
 - **Auth**: Google OAuth (OIDC) with server-side PostgreSQL sessions
 - **Hosting**: Vercel (static frontend + serverless API)
 
-## Conventions
-- Server imports use relative paths (`../shared/schema`), NOT `@shared` aliases
-- Client imports can use `@/` and `@shared/` aliases
-- After ANY server-side change, run `npm run build:api`
-- The `api/index.mjs` file is committed to git
-- Use `cross-env` in npm scripts for Windows compatibility
-- NEVER use `tsx watch` — causes infinite restart loops on Windows
-- Tailwind CSS v4 uses `@tailwindcss/vite` plugin — do NOT add `tailwindcss` to postcss.config.js
-- Express runs on port 5000, Vite on 5173
-- Always `app.set("trust proxy", 1)` in production (Vercel reverse proxy)
-
 ## Commands
-- `npm run dev` — start dev server (Express + Vite)
+- `npm run dev` — start dev server (Express 5000 + Vite 5173)
 - `npm run build` — build frontend
-- `npm run build:api` — bundle serverless API
+- `npm run build:api` — bundle serverless API (run after ANY server change)
 - `npm run db:push` — push schema to database
 
-## Architecture
-- Multi-tenant: every data table has `clientId`, every query scoped by client
-- Admin scaffold (users, invites, access requests, audit logs) is platform-level — DO NOT MODIFY
-- Phase 1 = human in the loop (copy/paste). No autonomous actions.
-- All colours via Tailwind tokens: stock-in, stock-out, warning, info, invoiced, muted, brand-primary
-- No hardcoded hex values in components
-- No decorative CSS — clean defaults only
+## Project Conventions
+- Server imports: relative paths (`../shared/schema`), NOT `@shared`
+- Client imports: `@/` and `@shared/` aliases OK
+- `api/index.mjs` is committed to git
+- `cross-env` in npm scripts for Windows
+- NEVER use `tsx watch` — infinite restart loops on Windows
+- Tailwind v4 uses `@tailwindcss/vite` plugin — no tailwindcss in postcss
 
-## Key Concepts
-- Canary Snapshot: home screen with status line, data/visual lenses, risk filters
-- Setup Journey: 5-step onboarding for new clients
-- PO Lifecycle: purchase orders tracked from creation through delivery
-- Stock locations, channel codes, SKU mappings are per-client config, not hardcoded
+## Multi-Tenancy
+- Every data table has `clientId`, every query scoped via `getClientId(req)`
+- Platform tables (users, sessions, invitedUsers, accessRequests, auditLogs) have NO clientId
+- Admin scaffold is platform-level — DO NOT MODIFY
+- `clientContext.ts` middleware: currently hardcoded to client 1, will resolve from subdomain in future
+
+## Shared Calculations (`shared/calculations/`)
+- `stock.ts` — calcStockStatus, calcDepletionRate, calcDaysRemaining, calcProjectedReorderDate, calcOverallStatus, calcReorderPoint, calcRecommendedOrderQty
+- `po.ts` — calcExpectedDeliveryDate, calcDaysUntilDelivery, isPoOverdue, isValidPoTransition
+- `formatters.ts` — date formatting, stock formatting, status badges, daysFromNow
+
+## Shared UI Components
+- `StickyActionBar` — pinned bottom action bar
+- `PageTabs` — text tabs with underline
+- `ErrorBox` — consistent error display
+- `LoadingOverlay` — full-screen loading state
+- `ImportWizard` — reusable Source → Clean → Confirm → Done wizard
+
+## Shared Client Helpers (`client/src/lib/`)
+- `formatters.ts` — re-exports from shared/calculations
+- `invalidation.ts` — `invalidateStockData(qc)`, `invalidateOrderData(qc)`
+- `queryClient.ts` — TanStack Query config + `apiRequest()` fetch wrapper
+
+## Navigation Structure
+- **Snapshot** — daily briefing (home)
+- **Stock** — Stock Levels, Supplies, Orders, PnP Weekly, Xero Import, Reorder, Purchase Orders, Record Delivery
+- **Tools** — Opening Balance Import, Supply Import, Stock Adjustment, Stock Transfer
+- **Settings** — Products & SKUs, Manufacturers, System Settings
+
+## Colour Tokens (index.css @theme)
+stock-in (green), stock-out (red), warning (amber), info (blue), invoiced (purple), muted (grey), brand-primary (neutral dark)
+
+## Key Domain Concepts
+- Two brands: THH (own) and NP (Nutriphase via PnP)
+- Two stock locations: THH (premises) and 88 (8/8 courier warehouse)
+- Two manufacturers: Zinchar and Nutrimed (~5 week lead times)
+- Supplies: raw materials + packaging, tracked via same ledger pattern as stock
+- Channel codes from Xero: D=Direct, W=Wholesale, R=Retail, C=PnP, G=AP-Brand
+- Setup Journey: 6 steps (Products, Suppliers, Opening Stock, Reorder Points, Sales Data, Supplies)
+- Canary Snapshot: status line + data/visual lenses + risk filters + working rhythm prompts
