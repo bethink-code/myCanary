@@ -48,11 +48,13 @@ export default function Settings() {
 function ProductsTab() {
   const [editingProduct, setEditingProduct] = useState<any>(null);
   const [search, setSearch] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
   const qc = useQueryClient();
 
   const { data: products = [] } = useQuery<any[]>({
-    queryKey: ["products"],
-    queryFn: () => apiRequest("/api/products"),
+    queryKey: ["products", showArchived],
+    queryFn: () =>
+      apiRequest(`/api/products${showArchived ? "?active=false" : ""}`),
   });
 
   const { data: manufacturers = [] } = useQuery<any[]>({
@@ -72,6 +74,26 @@ function ProductsTab() {
     },
   });
 
+  const archiveMutation = useMutation({
+    mutationFn: (data: { skuCode: string; isActive: boolean }) =>
+      apiRequest(`/api/products/${data.skuCode}`, {
+        method: "PATCH",
+        body: JSON.stringify({ isActive: data.isActive }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["products"] });
+    },
+  });
+
+  function handleArchiveToggle(p: any) {
+    const archiving = p.isActive;
+    const confirmMsg = archiving
+      ? `Archive ${p.skuCode} — ${p.productName}?\n\nArchived products are hidden from stock, snapshots, and calculations but all history is preserved. You can restore them later.`
+      : `Restore ${p.skuCode} — ${p.productName}?\n\nIt will reappear in stock views and calculations.`;
+    if (!window.confirm(confirmMsg)) return;
+    archiveMutation.mutate({ skuCode: p.skuCode, isActive: !archiving });
+  }
+
   const filtered = products.filter((p: any) => {
     if (!search) return true;
     const term = search.toLowerCase();
@@ -83,13 +105,24 @@ function ProductsTab() {
 
   return (
     <div className="space-y-4">
-      <input
-        type="text"
-        placeholder="Search products..."
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        className="px-3 py-2 border border-border rounded-lg text-sm w-64 focus:outline-none focus:ring-2 focus:ring-ring"
-      />
+      <div className="flex items-center gap-4">
+        <input
+          type="text"
+          placeholder="Search products..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="px-3 py-2 border border-border rounded-lg text-sm w-64 focus:outline-none focus:ring-2 focus:ring-ring"
+        />
+        <label className="inline-flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={showArchived}
+            onChange={(e) => setShowArchived(e.target.checked)}
+            className="rounded border-slate-300"
+          />
+          Show archived
+        </label>
+      </div>
 
       <div className="bg-white rounded-xl border border-border overflow-hidden">
         <div className="overflow-x-auto">
@@ -108,9 +141,19 @@ function ProductsTab() {
             </thead>
             <tbody className="divide-y divide-border">
               {filtered.map((p: any) => (
-                <tr key={p.skuCode} className="hover:bg-slate-50">
+                <tr
+                  key={p.skuCode}
+                  className={`hover:bg-slate-50 ${!p.isActive ? "text-slate-400" : ""}`}
+                >
                   <td className="px-4 py-3 font-mono text-xs">{p.skuCode}</td>
-                  <td className="px-4 py-3">{p.productName}</td>
+                  <td className="px-4 py-3">
+                    {p.productName}
+                    {!p.isActive && (
+                      <span className="ml-2 text-[10px] font-medium text-slate-500 uppercase tracking-wide">
+                        Archived
+                      </span>
+                    )}
+                  </td>
                   <td className="px-4 py-3">{p.brand}</td>
                   <td className="px-4 py-3">{p.category.replace("_", " ")}</td>
                   <td className="px-4 py-3">
@@ -119,12 +162,21 @@ function ProductsTab() {
                   <td className="px-4 py-3 text-right">{p.unitsPerCase ?? "—"}</td>
                   <td className="px-4 py-3 text-right">{p.reorderPointOverride ?? "—"}</td>
                   <td className="px-4 py-3">
-                    <button
-                      onClick={() => setEditingProduct(p)}
-                      className="text-primary hover:underline text-xs"
-                    >
-                      Edit
-                    </button>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => setEditingProduct(p)}
+                        className="text-primary hover:underline text-xs"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleArchiveToggle(p)}
+                        disabled={archiveMutation.isPending}
+                        className="text-xs text-slate-500 hover:text-red-600 hover:underline disabled:opacity-50"
+                      >
+                        {p.isActive ? "Archive" : "Restore"}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
