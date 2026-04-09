@@ -33,6 +33,7 @@ interface StepConfig {
   explanation: string;
   link: string;
   linkLabel: string;
+  optional?: boolean;
 }
 
 const STEPS: StepConfig[] = [
@@ -51,6 +52,7 @@ const STEPS: StepConfig[] = [
       "Your manufacturers and their lead times. The canary uses these to calculate when to order.",
     link: "/settings?tab=manufacturers",
     linkLabel: "Update Manufacturers",
+    optional: true,
   },
   {
     key: "openingStock",
@@ -137,7 +139,7 @@ export default function SetupJourney() {
   if (error) return <div className="p-6"><ErrorBox>Failed to load setup status: {(error as Error).message}</ErrorBox></div>;
   if (!data) return null;
 
-  const allComplete = Object.values(data.steps).every((s) => s.complete);
+  const allComplete = STEPS.every((cfg) => cfg.optional || data.steps[cfg.key].complete);
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8 space-y-6">
@@ -161,7 +163,14 @@ export default function SetupJourney() {
                     {idx + 1}
                   </span>
                   <div>
-                    <h2 className="font-semibold text-slate-900">{cfg.title}</h2>
+                    <h2 className="font-semibold text-slate-900">
+                      {cfg.title}
+                      {cfg.optional && (
+                        <span className="ml-2 text-xs font-medium text-slate-400 uppercase tracking-wide">
+                          Optional
+                        </span>
+                      )}
+                    </h2>
                     <p className="text-sm text-slate-500 mt-0.5">
                       {step.complete || status === "in-progress"
                         ? step.description

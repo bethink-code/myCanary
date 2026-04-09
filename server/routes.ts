@@ -1597,13 +1597,9 @@ export function registerRoutes(router: Router) {
     try {
       const clientId = getClientId(req);
 
-      // Re-check all 5 steps
-      const [productRows, mfgRows, ledgerRow, activeRows, rpRows, salesRows, supplyRows] = await Promise.all([
+      // Re-check mandatory setup steps (suppliers are optional)
+      const [productRows, ledgerRow, activeRows, rpRows, salesRows, supplyRows] = await Promise.all([
         db.select({ cnt: count() }).from(products).where(eq(products.clientId, clientId)),
-        db.select({
-          total: count(),
-          missingEmail: sql<number>`SUM(CASE WHEN ${manufacturers.email} IS NULL OR ${manufacturers.email} = '' THEN 1 ELSE 0 END)`,
-        }).from(manufacturers).where(eq(manufacturers.clientId, clientId)),
         db.select().from(systemSettings)
           .where(and(eq(systemSettings.clientId, clientId), eq(systemSettings.key, "ledger_start_date"))).limit(1),
         db.select({ cnt: count() }).from(products)
@@ -1617,15 +1613,14 @@ export function registerRoutes(router: Router) {
       ]);
 
       const productsOk = Number(productRows[0]?.cnt ?? 0) > 0;
-      const mfgTotal = Number(mfgRows[0]?.total ?? 0);
-      const suppliersOk = mfgTotal > 0 && Number(mfgRows[0]?.missingEmail ?? 0) === 0;
       const openingOk = !!ledgerRow[0]?.value;
       const activeTotal = Number(activeRows[0]?.cnt ?? 0);
       const rpOk = activeTotal > 0 && Number(rpRows[0]?.cnt ?? 0) / activeTotal > 0.8;
       const salesOk = Number(salesRows[0]?.cnt ?? 0) > 0;
       const suppliesOk = Number(supplyRows[0]?.cnt ?? 0) > 0;
 
-      if (!productsOk || !suppliersOk || !openingOk || !rpOk || !salesOk || !suppliesOk) {
+      // Suppliers (manufacturer contact details) are optional — not enforced here.
+      if (!productsOk || !openingOk || !rpOk || !salesOk || !suppliesOk) {
         return res.status(400).json({ message: "Not all setup steps are complete" });
       }
 

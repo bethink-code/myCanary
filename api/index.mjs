@@ -1651,12 +1651,8 @@ function registerRoutes(router2) {
   router2.post("/api/setup/complete", isAuthenticated, async (req, res) => {
     try {
       const clientId = getClientId(req);
-      const [productRows, mfgRows, ledgerRow, activeRows, rpRows, salesRows, supplyRows] = await Promise.all([
+      const [productRows, ledgerRow, activeRows, rpRows, salesRows, supplyRows] = await Promise.all([
         db.select({ cnt: count() }).from(products).where(eq2(products.clientId, clientId)),
-        db.select({
-          total: count(),
-          missingEmail: sql2`SUM(CASE WHEN ${manufacturers.email} IS NULL OR ${manufacturers.email} = '' THEN 1 ELSE 0 END)`
-        }).from(manufacturers).where(eq2(manufacturers.clientId, clientId)),
         db.select().from(systemSettings).where(and(eq2(systemSettings.clientId, clientId), eq2(systemSettings.key, "ledger_start_date"))).limit(1),
         db.select({ cnt: count() }).from(products).where(and(eq2(products.clientId, clientId), eq2(products.isActive, true))),
         db.select({ cnt: count() }).from(products).where(and(eq2(products.clientId, clientId), eq2(products.isActive, true), sql2`${products.reorderPointOverride} > 0`)),
@@ -1664,14 +1660,12 @@ function registerRoutes(router2) {
         db.select({ cnt: count() }).from(supplies).where(eq2(supplies.clientId, clientId))
       ]);
       const productsOk = Number(productRows[0]?.cnt ?? 0) > 0;
-      const mfgTotal = Number(mfgRows[0]?.total ?? 0);
-      const suppliersOk = mfgTotal > 0 && Number(mfgRows[0]?.missingEmail ?? 0) === 0;
       const openingOk = !!ledgerRow[0]?.value;
       const activeTotal = Number(activeRows[0]?.cnt ?? 0);
       const rpOk = activeTotal > 0 && Number(rpRows[0]?.cnt ?? 0) / activeTotal > 0.8;
       const salesOk = Number(salesRows[0]?.cnt ?? 0) > 0;
       const suppliesOk = Number(supplyRows[0]?.cnt ?? 0) > 0;
-      if (!productsOk || !suppliersOk || !openingOk || !rpOk || !salesOk || !suppliesOk) {
+      if (!productsOk || !openingOk || !rpOk || !salesOk || !suppliesOk) {
         return res.status(400).json({ message: "Not all setup steps are complete" });
       }
       await db.update(clients).set({ setupComplete: true }).where(eq2(clients.id, clientId));
