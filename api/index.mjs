@@ -2511,7 +2511,7 @@ var XERO_TOKEN_URL = "https://identity.xero.com/connect/token";
 var XERO_API_BASE = "https://api.xero.com";
 var XERO_SCOPES = "openid profile email offline_access accounting.invoices.read accounting.settings.read";
 function getXeroRedirectUri() {
-  return process.env.NODE_ENV === "production" ? `${process.env.PRODUCTION_URL}/auth/xero/callback` : "http://localhost:5000/auth/xero/callback";
+  return process.env.NODE_ENV === "production" ? "https://www.mycanary.biz/auth/xero/callback" : "http://localhost:5000/auth/xero/callback";
 }
 async function getXeroTokens(clientId) {
   const result = await db.select().from(systemSettings).where(and4(eq5(systemSettings.clientId, clientId), eq5(systemSettings.key, "xero_tokens")));

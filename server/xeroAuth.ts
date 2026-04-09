@@ -14,7 +14,7 @@ const XERO_SCOPES = "openid profile email offline_access accounting.invoices.rea
 
 function getXeroRedirectUri() {
   return process.env.NODE_ENV === "production"
-    ? `${process.env.PRODUCTION_URL}/auth/xero/callback`
+    ? "https://www.mycanary.biz/auth/xero/callback"
     : "http://localhost:5000/auth/xero/callback";
 }
 
