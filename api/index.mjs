@@ -5,7 +5,6 @@ var __export = (target, all) => {
 };
 
 // server/api.ts
-import "dotenv/config";
 import express from "express";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
@@ -352,13 +351,7 @@ var apBrandMappings = pgTable("ap_brand_mappings", {
 });
 
 // server/db.ts
-var getDatabaseUrl = () => {
-  if (process.env.NODE_ENV === "production" && process.env.DATABASE_URL_PRODUCTION) {
-    return process.env.DATABASE_URL_PRODUCTION;
-  }
-  return process.env.DATABASE_URL;
-};
-var sql = neon(getDatabaseUrl());
+var sql = neon(process.env.DATABASE_URL);
 var db = drizzle(sql, { schema: schema_exports });
 
 // server/storage.ts
@@ -3711,7 +3704,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(
   session({
     store: new PgSession({
-      conString: process.env.DATABASE_URL_PRODUCTION ?? process.env.DATABASE_URL,
+      conString: process.env.DATABASE_URL,
       createTableIfMissing: true
     }),
     secret: process.env.SESSION_SECRET,

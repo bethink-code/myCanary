@@ -5,12 +5,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev:server": "cross-env NODE_ENV=development npx tsx server/index.ts",
+    "dev:server": "npx tsx server/index.ts",
     "dev:client": "wait-on tcp:5000 && npx vite",
-    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev": "doppler run -- concurrently \"npm run dev:server\" \"npm run dev:client\"",
     "build": "vite build",
     "build:api": "esbuild server/api.ts --platform=node --packages=external --bundle --format=esm --outfile=api/index.mjs",
-    "db:push": "drizzle-kit push"
+    "db:push": "doppler run -- drizzle-kit push"
   },
   "dependencies": {
     "@neondatabase/serverless": "^0.10.4",

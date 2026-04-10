@@ -1,4 +1,3 @@
-import "dotenv/config";
 import express from "express";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
@@ -32,7 +31,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(
   session({
     store: new PgSession({
-      conString: process.env.DATABASE_URL_PRODUCTION ?? process.env.DATABASE_URL,
+      conString: process.env.DATABASE_URL,
       createTableIfMissing: true,
     }),
     secret: process.env.SESSION_SECRET!,
