@@ -131,7 +131,7 @@ function MobileSubMenu({ open, onClose, links }: { open: boolean; onClose: () =>
 }
 
 function AppLayout() {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const qc = useQueryClient();
   const location = useLocation();
   const [mobileStockOpen, setMobileStockOpen] = useState(false);
@@ -190,6 +190,18 @@ function AppLayout() {
                 >
                   Settings
                 </Link>
+                {isAdmin && (
+                  <Link
+                    to="/admin"
+                    className={`text-sm transition-colors ${
+                      location.pathname.startsWith("/admin")
+                        ? "text-slate-900 font-medium"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    Admin
+                  </Link>
+                )}
               </div>
               {/* Mobile nav */}
               <div className="flex md:hidden items-center gap-4">
@@ -227,6 +239,14 @@ function AppLayout() {
                 >
                   Settings
                 </Link>
+                {isAdmin && (
+                  <Link
+                    to="/admin"
+                    className={`text-sm ${location.pathname.startsWith("/admin") ? "text-slate-900 font-medium" : "text-slate-600"}`}
+                  >
+                    Admin
+                  </Link>
+                )}
               </div>
             </div>
             <div className="flex items-center gap-3">
