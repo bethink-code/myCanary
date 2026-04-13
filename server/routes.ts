@@ -79,7 +79,25 @@ export function registerRoutes(router: Router) {
     const parsed = accessRequestSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: "Invalid input", errors: parsed.error.flatten() });
     const result = await createAccessRequest(parsed.data);
-    res.json(result[0]);
+    const created = result[0];
+
+    const admins = (await getAllUsers()).filter((u) => u.isAdmin);
+    if (admins.length) {
+      const clientId = getClientId(req);
+      await db.insert(notifications).values(
+        admins.map((a) => ({
+          clientId,
+          userId: a.id,
+          type: "ACCESS_REQUEST",
+          title: `Access request: ${parsed.data.name}`,
+          message: `${parsed.data.email}${parsed.data.cell ? ` · ${parsed.data.cell}` : ""}`,
+          resourceType: "AccessRequest",
+          resourceId: String(created.id),
+        })),
+      );
+    }
+
+    res.json(created);
   });
 
   // ─── Admin: Users ────────────────────────────────

@@ -21,6 +21,7 @@ const TYPE_COLORS: Record<string, string> = {
   PNP_DISPATCHED: "bg-green-100 text-green-700",
   PO_APPROVED: "bg-blue-100 text-blue-700",
   EXPIRY_WARNING: "bg-amber-100 text-amber-700",
+  ACCESS_REQUEST: "bg-blue-100 text-blue-700",
 };
 
 export default function NotificationBell() {
