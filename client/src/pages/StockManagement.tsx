@@ -4,6 +4,7 @@ import { apiRequest } from "../lib/queryClient";
 import { Link } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { formatStock, calcStockStatus, getStatusBadge, formatDateShort } from "../lib/formatters";
+import RecordMovementModal from "../components/RecordMovementModal";
 
 interface StockItem {
   skuCode: string;
@@ -41,6 +42,7 @@ export default function StockManagement() {
   const [locationFilter, setLocationFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
+  const [movementTarget, setMovementTarget] = useState<StockItem | null>(null);
 
   const { data: stockItems = [], isLoading } = useQuery<StockItem[]>({
     queryKey: ["stock-summary"],
@@ -284,12 +286,12 @@ export default function StockManagement() {
                         )}
                       </td>
                       <td className="px-4 py-3">
-                        <Link
-                          to={`/tools/adjustment?sku=${item.skuCode}`}
-                          className="text-xs text-slate-400 hover:text-primary"
+                        <button
+                          onClick={() => setMovementTarget(item)}
+                          className="text-xs text-slate-500 hover:text-primary"
                         >
-                          Adjust
-                        </Link>
+                          Record movement
+                        </button>
                       </td>
                     </tr>
                   );
@@ -311,6 +313,16 @@ export default function StockManagement() {
             Showing {filtered.length} of {stockItems.length} products
           </div>
         </div>
+      )}
+
+      {movementTarget && (
+        <RecordMovementModal
+          subjectKind="product"
+          subjectId={movementTarget.skuCode}
+          subjectName={`${movementTarget.productName} (${movementTarget.skuCode})`}
+          initialLocation={movementTarget.primaryStockLocation}
+          onClose={() => setMovementTarget(null)}
+        />
       )}
     </div>
   );
