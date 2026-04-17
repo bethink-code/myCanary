@@ -2,7 +2,6 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "../lib/queryClient";
 import { Link } from "react-router-dom";
-import { useAuth } from "../hooks/useAuth";
 import { formatStock, calcStockStatus, getStatusBadge, formatDateShort } from "../lib/formatters";
 import RecordMovementModal from "../components/RecordMovementModal";
 
@@ -37,7 +36,6 @@ const STATUS_FILTERS = [
 ];
 
 export default function StockManagement() {
-  const { isAdmin } = useAuth();
   const [categoryFilter, setCategoryFilter] = useState("");
   const [locationFilter, setLocationFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -83,71 +81,33 @@ export default function StockManagement() {
   return (
     <div className="space-y-6">
       <div>
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
           <h1 className="text-2xl font-bold text-slate-900">Stock Levels</h1>
-          <Link
-            to="/stock/reorder"
-            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90"
-          >
-            Run Stock Check
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link
+              to="/xero/import"
+              className="px-4 py-2 bg-white border border-border text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50"
+            >
+              Fetch sales from Xero
+            </Link>
+            <Link
+              to="/stock/delivery"
+              className="px-4 py-2 bg-white border border-border text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50"
+            >
+              Record delivery
+            </Link>
+            <Link
+              to="/stock/reorder"
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90"
+            >
+              Run Stock Check
+            </Link>
+          </div>
         </div>
         <p className="text-sm text-slate-500 mt-1">
-          On Hand = Stock In (deliveries) minus Stock Out (sales). Negative means more has been sold than received.
+          On Hand = Stock In (deliveries) minus Stock Out (sales). Per-row <em>Record movement</em> handles adjustments and transfers.
         </p>
       </div>
-
-      {/* Stock In / Stock Out action bar */}
-      {isAdmin && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="bg-green-50 border border-green-200 rounded-xl p-4">
-            <h3 className="font-semibold text-green-800 text-sm mb-2">Stock In (adds inventory)</h3>
-            <div className="flex flex-wrap gap-2">
-              <Link
-                to="/tools/opening-balance"
-                className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700"
-              >
-                Import Opening Balances
-              </Link>
-              <Link
-                to="/stock/delivery"
-                className="px-3 py-1.5 bg-white border border-green-300 text-green-700 rounded-lg text-xs font-medium hover:bg-green-100"
-              >
-                Record Manufacturer Delivery
-              </Link>
-            </div>
-            <p className="text-xs text-green-600 mt-2">
-              Opening balances: one-time import from Animal Farm spreadsheet. Deliveries: each time Zinchar/Nutrimed ships.
-            </p>
-          </div>
-          <div className="bg-red-50 border border-red-200 rounded-xl p-4">
-            <h3 className="font-semibold text-red-800 text-sm mb-2">Stock Out (removes inventory)</h3>
-            <div className="flex flex-wrap gap-2">
-              <Link
-                to="/xero/import"
-                className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-medium hover:bg-red-700"
-              >
-                Import Sales from Xero
-              </Link>
-              <Link
-                to="/pnp"
-                className="px-3 py-1.5 bg-white border border-red-300 text-red-700 rounded-lg text-xs font-medium hover:bg-red-100"
-              >
-                PnP Dispatch (8/8)
-              </Link>
-              <Link
-                to="/tools/transfer"
-                className="px-3 py-1.5 bg-white border border-amber-300 text-amber-700 rounded-lg text-xs font-medium hover:bg-amber-100"
-              >
-                Transfer THH → 8/8
-              </Link>
-            </div>
-            <p className="text-xs text-red-600 mt-2">
-              Sales from Xero debit THH stock. PnP dispatches debit 8/8 stock. Transfers move between locations.
-            </p>
-          </div>
-        </div>
-      )}
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3">
