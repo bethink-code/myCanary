@@ -770,6 +770,58 @@ function registerRoutes(router2) {
       res.status(500).json({ message: "Failed to update product", error: err.message });
     }
   });
+  const createProductSchema = z.object({
+    skuCode: z.string().min(1).max(50),
+    productName: z.string().min(1).max(255),
+    brand: z.string().min(1).max(10),
+    category: z.string().min(1).max(50),
+    packSizeG: z.number().int().positive().nullable().optional(),
+    unitsPerCase: z.number().int().positive().nullable().optional(),
+    manufacturerId: z.number().int().positive().nullable().optional(),
+    primaryStockLocation: z.string().max(10).optional(),
+    xeroItemCode: z.string().max(50).nullable().optional(),
+    apBrandEquivalent: z.string().max(50).nullable().optional(),
+    reorderPointOverride: z.number().int().positive().nullable().optional(),
+    weightKg: z.number().int().positive().nullable().optional(),
+    notes: z.string().nullable().optional()
+  });
+  router2.post("/api/products", isAuthenticated, async (req, res) => {
+    try {
+      const clientId = getClientId(req);
+      const parsed = createProductSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid input", errors: parsed.error.flatten() });
+      }
+      const existing = await db.select({ id: products.id }).from(products).where(and(eq2(products.skuCode, parsed.data.skuCode), eq2(products.clientId, clientId))).limit(1);
+      if (existing.length > 0) {
+        return res.status(409).json({ message: `SKU ${parsed.data.skuCode} already exists` });
+      }
+      const inserted = await db.insert(products).values({
+        clientId,
+        skuCode: parsed.data.skuCode,
+        productName: parsed.data.productName,
+        brand: parsed.data.brand,
+        category: parsed.data.category,
+        packSizeG: parsed.data.packSizeG ?? null,
+        unitsPerCase: parsed.data.unitsPerCase ?? null,
+        manufacturerId: parsed.data.manufacturerId ?? null,
+        primaryStockLocation: parsed.data.primaryStockLocation ?? "THH",
+        xeroItemCode: parsed.data.xeroItemCode ?? null,
+        apBrandEquivalent: parsed.data.apBrandEquivalent ?? null,
+        reorderPointOverride: parsed.data.reorderPointOverride ?? null,
+        weightKg: parsed.data.weightKg ?? null,
+        notes: parsed.data.notes ?? null
+      }).returning();
+      logAudit(req, "PRODUCT_CREATED", {
+        resourceType: "Product",
+        resourceId: parsed.data.skuCode,
+        afterValue: inserted[0]
+      });
+      res.json(inserted[0]);
+    } catch (err) {
+      res.status(500).json({ message: "Failed to create product", error: err.message });
+    }
+  });
   router2.get("/api/manufacturers", isAuthenticated, async (req, res) => {
     try {
       const clientId = getClientId(req);

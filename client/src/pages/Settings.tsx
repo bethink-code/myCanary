@@ -47,6 +47,7 @@ export default function Settings() {
 
 function ProductsTab() {
   const [editingProduct, setEditingProduct] = useState<any>(null);
+  const [addingProduct, setAddingProduct] = useState(false);
   const [search, setSearch] = useState("");
   const [showArchived, setShowArchived] = useState(false);
   const qc = useQueryClient();
@@ -71,6 +72,18 @@ function ProductsTab() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["products"] });
       setEditingProduct(null);
+    },
+  });
+
+  const createMutation = useMutation({
+    mutationFn: (payload: any) =>
+      apiRequest("/api/products", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["products"] });
+      setAddingProduct(false);
     },
   });
 
@@ -122,6 +135,13 @@ function ProductsTab() {
           />
           Show archived
         </label>
+        <div className="flex-1" />
+        <button
+          onClick={() => setAddingProduct(true)}
+          className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium"
+        >
+          Add product
+        </button>
       </div>
 
       <div className="bg-white rounded-xl border border-border overflow-hidden">
@@ -197,6 +217,234 @@ function ProductsTab() {
           saving={updateMutation.isPending}
         />
       )}
+
+      {/* Add Modal */}
+      {addingProduct && (
+        <AddProductModal
+          manufacturers={manufacturers}
+          onSave={(payload) => createMutation.mutate(payload)}
+          onClose={() => {
+            setAddingProduct(false);
+            createMutation.reset();
+          }}
+          saving={createMutation.isPending}
+          error={createMutation.error as Error | null}
+        />
+      )}
+    </div>
+  );
+}
+
+function AddProductModal({
+  manufacturers,
+  onSave,
+  onClose,
+  saving,
+  error,
+}: {
+  manufacturers: any[];
+  onSave: (payload: any) => void;
+  onClose: () => void;
+  saving: boolean;
+  error: Error | null;
+}) {
+  const [form, setForm] = useState({
+    skuCode: "",
+    productName: "",
+    brand: "",
+    category: "",
+    manufacturerId: "",
+    primaryStockLocation: "THH",
+    packSizeG: "",
+    unitsPerCase: "",
+    reorderPointOverride: "",
+    xeroItemCode: "",
+    apBrandEquivalent: "",
+    notes: "",
+  });
+
+  const canSave =
+    form.skuCode.trim() && form.productName.trim() && form.brand.trim() && form.category.trim();
+
+  function handleSave() {
+    onSave({
+      skuCode: form.skuCode.trim(),
+      productName: form.productName.trim(),
+      brand: form.brand.trim(),
+      category: form.category.trim(),
+      manufacturerId: form.manufacturerId ? Number(form.manufacturerId) : null,
+      primaryStockLocation: form.primaryStockLocation || "THH",
+      packSizeG: form.packSizeG ? Number(form.packSizeG) : null,
+      unitsPerCase: form.unitsPerCase ? Number(form.unitsPerCase) : null,
+      reorderPointOverride: form.reorderPointOverride ? Number(form.reorderPointOverride) : null,
+      xeroItemCode: form.xeroItemCode || null,
+      apBrandEquivalent: form.apBrandEquivalent || null,
+      notes: form.notes || null,
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-xl p-6 max-w-lg w-full mx-4 space-y-4 max-h-[90vh] overflow-y-auto">
+        <h2 className="text-lg font-bold text-slate-900">Add product</h2>
+
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-3 py-2 rounded-lg">
+            {error.message}
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">SKU code *</label>
+            <input
+              type="text"
+              value={form.skuCode}
+              onChange={(e) => setForm({ ...form, skuCode: e.target.value.toUpperCase() })}
+              placeholder="e.g. HHCC30"
+              className="w-full px-3 py-2 border border-border rounded-lg text-sm font-mono"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Brand *</label>
+            <input
+              type="text"
+              value={form.brand}
+              onChange={(e) => setForm({ ...form, brand: e.target.value.toUpperCase() })}
+              placeholder="e.g. NP, HH"
+              maxLength={10}
+              className="w-full px-3 py-2 border border-border rounded-lg text-sm"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1">Product name *</label>
+          <input
+            type="text"
+            value={form.productName}
+            onChange={(e) => setForm({ ...form, productName: e.target.value })}
+            className="w-full px-3 py-2 border border-border rounded-lg text-sm"
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Category *</label>
+            <input
+              type="text"
+              value={form.category}
+              onChange={(e) => setForm({ ...form, category: e.target.value })}
+              placeholder="e.g. CHEWS, SPRAY"
+              className="w-full px-3 py-2 border border-border rounded-lg text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Primary location</label>
+            <select
+              value={form.primaryStockLocation}
+              onChange={(e) => setForm({ ...form, primaryStockLocation: e.target.value })}
+              className="w-full px-3 py-2 border border-border rounded-lg text-sm"
+            >
+              <option value="THH">THH</option>
+              <option value="88">88</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1">Manufacturer</label>
+          <select
+            value={form.manufacturerId}
+            onChange={(e) => setForm({ ...form, manufacturerId: e.target.value })}
+            className="w-full px-3 py-2 border border-border rounded-lg text-sm"
+          >
+            <option value="">Not assigned (TBC)</option>
+            {manufacturers.map((m: any) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="grid grid-cols-3 gap-3">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Pack size (g)</label>
+            <input
+              type="number"
+              value={form.packSizeG}
+              onChange={(e) => setForm({ ...form, packSizeG: e.target.value })}
+              className="w-full px-3 py-2 border border-border rounded-lg text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Units/case</label>
+            <input
+              type="number"
+              value={form.unitsPerCase}
+              onChange={(e) => setForm({ ...form, unitsPerCase: e.target.value })}
+              className="w-full px-3 py-2 border border-border rounded-lg text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">RP override</label>
+            <input
+              type="number"
+              value={form.reorderPointOverride}
+              onChange={(e) => setForm({ ...form, reorderPointOverride: e.target.value })}
+              className="w-full px-3 py-2 border border-border rounded-lg text-sm"
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Xero item code</label>
+            <input
+              type="text"
+              value={form.xeroItemCode}
+              onChange={(e) => setForm({ ...form, xeroItemCode: e.target.value })}
+              className="w-full px-3 py-2 border border-border rounded-lg text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">AP brand equivalent</label>
+            <input
+              type="text"
+              value={form.apBrandEquivalent}
+              onChange={(e) => setForm({ ...form, apBrandEquivalent: e.target.value })}
+              className="w-full px-3 py-2 border border-border rounded-lg text-sm"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1">Notes</label>
+          <textarea
+            value={form.notes}
+            onChange={(e) => setForm({ ...form, notes: e.target.value })}
+            rows={2}
+            className="w-full px-3 py-2 border border-border rounded-lg text-sm"
+          />
+        </div>
+
+        <div className="flex gap-3 pt-2">
+          <button
+            onClick={handleSave}
+            disabled={saving || !canSave}
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium disabled:opacity-50"
+          >
+            {saving ? "Creating…" : "Create product"}
+          </button>
+          <button
+            onClick={onClose}
+            className="px-4 py-2 border border-border text-slate-700 rounded-lg text-sm"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
