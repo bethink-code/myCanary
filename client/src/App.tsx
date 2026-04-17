@@ -39,8 +39,6 @@ const STOCK_LINKS = [
 const TOOLS_LINKS = [
   { to: "/tools/opening-balance", label: "Opening Balance Import" },
   { to: "/tools/supply-import", label: "Supply Import" },
-  { to: "/tools/adjustment", label: "Stock Adjustment" },
-  { to: "/tools/transfer", label: "Stock Transfer" },
 ];
 
 function TermsModal({ onAccept }: { onAccept: () => void }) {

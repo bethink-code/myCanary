@@ -10,6 +10,7 @@ import { registerPnpRoutes } from "./pnpProcess";
 import { registerXeroAuthRoutes } from "./xeroAuth";
 import { registerOpeningBalanceRoutes } from "./openingBalanceImport";
 import { registerSupplyRoutes } from "./supplies";
+import { registerMovementRoutes } from "./movements/routes";
 import { clientContext } from "./clientContext";
 
 const app = express();
@@ -68,6 +69,7 @@ registerXeroAuthRoutes(router);
 registerPnpRoutes(router);
 registerOpeningBalanceRoutes(router);
 registerSupplyRoutes(router);
+registerMovementRoutes(router);
 app.use(router);
 
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

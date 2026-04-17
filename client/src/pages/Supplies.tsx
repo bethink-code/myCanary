@@ -7,6 +7,7 @@ import PageTabs from "../components/PageTabs";
 import StickyActionBar from "../components/StickyActionBar";
 import ErrorBox from "../components/ErrorBox";
 import LoadingOverlay from "../components/LoadingOverlay";
+import RecordMovementModal from "../components/RecordMovementModal";
 
 // ---------- Types ----------
 
@@ -89,6 +90,7 @@ export default function Supplies() {
   const [categoryFilter, setCategoryFilter] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [movementTarget, setMovementTarget] = useState<Supply | null>(null);
 
   // ---- Receive state ----
   const [receiveSupplyId, setReceiveSupplyId] = useState("");
@@ -416,9 +418,17 @@ export default function Supplies() {
                             {/* Expanded transactions */}
                             {isExpanded && (
                               <div className="bg-slate-50 border-t border-border px-6 py-4">
-                                <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">
-                                  Recent Transactions
-                                </h4>
+                                <div className="flex items-center justify-between mb-3">
+                                  <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                                    Recent Transactions
+                                  </h4>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); setMovementTarget(supply); }}
+                                    className="text-xs px-3 py-1.5 bg-primary text-primary-foreground rounded-md font-medium"
+                                  >
+                                    Record movement
+                                  </button>
+                                </div>
                                 {txLoading ? (
                                   <div className="flex justify-center py-4">
                                     <div className="animate-spin w-5 h-5 border-2 border-primary border-t-transparent rounded-full" />
@@ -951,6 +961,15 @@ export default function Supplies() {
       {/* Bottom padding for StickyActionBar */}
       {(tab === "receive" || tab === "send" || (tab === "import" && importStep !== 3)) && (
         <div className="h-20" />
+      )}
+
+      {movementTarget && (
+        <RecordMovementModal
+          subjectKind="supply"
+          subjectId={movementTarget.id}
+          subjectName={movementTarget.name}
+          onClose={() => setMovementTarget(null)}
+        />
       )}
     </div>
   );

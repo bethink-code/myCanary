@@ -3756,6 +3756,369 @@ function registerSupplyRoutes(router2) {
   }
 }
 
+// server/movements/routes.ts
+import { Router } from "express";
+import { z as z4 } from "zod";
+
+// shared/calculations/movements.ts
+function common(input) {
+  const errors = [];
+  if (!(typeof input.quantity === "number") || !Number.isFinite(input.quantity)) {
+    errors.push("quantity must be a number");
+  } else if (input.quantity <= 0) {
+    errors.push("quantity must be positive (direction is implied by movement type)");
+  }
+  if (!input.date || !/^\d{4}-\d{2}-\d{2}$/.test(input.date)) {
+    errors.push("date must be yyyy-mm-dd");
+  }
+  return errors;
+}
+function requireText(value, field) {
+  return typeof value === "string" && value.trim().length > 0 ? [] : [`${field} is required`];
+}
+function validateMovement(input) {
+  const errors = [];
+  errors.push(...common(input));
+  if (input.subjectKind === "product") {
+    errors.push(...requireText(input.skuCode, "skuCode"));
+    if (input.type === "TRANSFER") {
+      errors.push(...requireText(input.fromLocation, "fromLocation"));
+      errors.push(...requireText(input.toLocation, "toLocation"));
+      if (input.fromLocation === input.toLocation) errors.push("fromLocation and toLocation must differ");
+    } else {
+      errors.push(...requireText(input.location, "location"));
+    }
+    if (input.type === "DELIVERY_RECEIVED") {
+      errors.push(...requireText(input.batchNumber, "batchNumber"));
+      errors.push(...requireText(input.manufactureDate, "manufactureDate"));
+      errors.push(...requireText(input.expiryDate, "expiryDate"));
+    }
+    if (input.type === "ADJUSTMENT_IN" || input.type === "ADJUSTMENT_OUT") {
+      errors.push(...requireText(input.reasonText, "reasonText"));
+    }
+  } else {
+    if (!Number.isInteger(input.supplyId) || input.supplyId <= 0) {
+      errors.push("supplyId must be a positive integer");
+    }
+    if (input.type === "ADJUSTMENT_IN" || input.type === "ADJUSTMENT_OUT") {
+      errors.push(...requireText(input.reasonText, "reasonText"));
+    }
+  }
+  return errors;
+}
+function movementToLedger(input) {
+  const effect = { stockRows: [], supplyRows: [], batchRow: null };
+  if (input.subjectKind === "product") {
+    switch (input.type) {
+      case "OPENING_BALANCE":
+        effect.stockRows.push({
+          skuCode: input.skuCode,
+          stockLocation: input.location,
+          transactionType: "OPENING_BALANCE",
+          quantity: input.quantity,
+          transactionDate: input.date,
+          reference: "opening balance"
+        });
+        break;
+      case "DELIVERY_RECEIVED":
+        effect.batchRow = {
+          skuCode: input.skuCode,
+          sizeVariant: input.sizeVariant ?? "",
+          stockLocation: input.location,
+          batchNumber: input.batchNumber,
+          manufactureDate: input.manufactureDate,
+          expiryDate: input.expiryDate,
+          initialQuantity: input.quantity,
+          receivedDate: input.date,
+          deliveryNoteRef: input.deliveryNoteRef ?? null
+        };
+        effect.stockRows.push({
+          skuCode: input.skuCode,
+          stockLocation: input.location,
+          transactionType: "DELIVERY_IN",
+          quantity: input.quantity,
+          transactionDate: input.date,
+          reference: input.deliveryNoteRef ?? null
+        });
+        break;
+      case "ADJUSTMENT_IN":
+        effect.stockRows.push({
+          skuCode: input.skuCode,
+          stockLocation: input.location,
+          transactionType: "ADJUSTMENT",
+          quantity: input.quantity,
+          transactionDate: input.date,
+          notes: input.reasonText
+        });
+        break;
+      case "ADJUSTMENT_OUT":
+        effect.stockRows.push({
+          skuCode: input.skuCode,
+          stockLocation: input.location,
+          transactionType: "ADJUSTMENT",
+          quantity: -input.quantity,
+          transactionDate: input.date,
+          notes: input.reasonText
+        });
+        break;
+      case "TRANSFER": {
+        const from = input.fromLocation;
+        const to = input.toLocation;
+        const ttype = `TRANSFER_${from}_TO_${to}`;
+        effect.stockRows.push({
+          skuCode: input.skuCode,
+          stockLocation: from,
+          transactionType: ttype,
+          quantity: -input.quantity,
+          transactionDate: input.date
+        });
+        effect.stockRows.push({
+          skuCode: input.skuCode,
+          stockLocation: to,
+          transactionType: ttype,
+          quantity: input.quantity,
+          transactionDate: input.date
+        });
+        break;
+      }
+      case "SALES_OUT":
+        effect.stockRows.push({
+          skuCode: input.skuCode,
+          stockLocation: input.location,
+          transactionType: "SALES_OUT",
+          quantity: -input.quantity,
+          transactionDate: input.date,
+          reference: input.invoiceRef ?? null,
+          channel: input.channel ?? null,
+          notes: input.reasonText ?? null
+        });
+        break;
+    }
+  } else {
+    switch (input.type) {
+      case "OPENING_BALANCE":
+        effect.supplyRows.push({
+          supplyId: input.supplyId,
+          transactionType: "RECEIVED",
+          quantity: input.quantity,
+          transactionDate: input.date,
+          notes: "opening balance"
+        });
+        break;
+      case "DELIVERY_RECEIVED":
+        effect.supplyRows.push({
+          supplyId: input.supplyId,
+          transactionType: "RECEIVED",
+          quantity: input.quantity,
+          transactionDate: input.date,
+          reference: input.reference ?? null
+        });
+        break;
+      case "ADJUSTMENT_IN":
+        effect.supplyRows.push({
+          supplyId: input.supplyId,
+          transactionType: "ADJUSTMENT",
+          quantity: input.quantity,
+          transactionDate: input.date,
+          notes: input.reasonText
+        });
+        break;
+      case "ADJUSTMENT_OUT":
+        effect.supplyRows.push({
+          supplyId: input.supplyId,
+          transactionType: "ADJUSTMENT",
+          quantity: -input.quantity,
+          transactionDate: input.date,
+          notes: input.reasonText
+        });
+        break;
+      case "SUPPLY_SENT_TO_MANUFACTURER":
+        effect.supplyRows.push({
+          supplyId: input.supplyId,
+          transactionType: "SENT_TO_MANUFACTURER",
+          quantity: -input.quantity,
+          transactionDate: input.date,
+          manufacturerName: input.manufacturerName ?? null,
+          reference: input.reference ?? null,
+          relatedPoId: input.relatedPoId ?? null
+        });
+        break;
+    }
+  }
+  return effect;
+}
+
+// server/movements/storage.ts
+function periodFromDate(iso) {
+  const [y, m] = iso.split("-").map((n) => parseInt(n, 10));
+  return { year: y, month: m };
+}
+async function recordMovement(clientId, userId, input) {
+  const errors = validateMovement(input);
+  if (errors.length) {
+    throw Object.assign(new Error("Invalid movement"), { code: "INVALID_MOVEMENT", errors });
+  }
+  const effect = movementToLedger(input);
+  const result = { stockIds: [], supplyIds: [] };
+  let batchId = null;
+  if (effect.batchRow) {
+    const [b] = await db.insert(batches).values({
+      clientId,
+      skuCode: effect.batchRow.skuCode,
+      sizeVariant: effect.batchRow.sizeVariant,
+      stockLocation: effect.batchRow.stockLocation,
+      batchNumber: effect.batchRow.batchNumber,
+      manufactureDate: effect.batchRow.manufactureDate,
+      expiryDate: effect.batchRow.expiryDate,
+      initialQuantity: effect.batchRow.initialQuantity,
+      receivedDate: effect.batchRow.receivedDate,
+      deliveryNoteRef: effect.batchRow.deliveryNoteRef ?? null
+    }).returning({ id: batches.id });
+    batchId = b.id;
+    result.batchId = b.id;
+  }
+  for (const row of effect.stockRows) {
+    const { month, year } = periodFromDate(row.transactionDate);
+    const [inserted] = await db.insert(stockTransactions).values({
+      clientId,
+      batchId,
+      skuCode: row.skuCode,
+      stockLocation: row.stockLocation,
+      transactionType: row.transactionType,
+      quantity: row.quantity,
+      transactionDate: row.transactionDate,
+      periodMonth: month,
+      periodYear: year,
+      reference: row.reference ?? null,
+      channel: row.channel ?? null,
+      notes: row.notes ?? null,
+      createdBy: userId
+    }).returning({ id: stockTransactions.id });
+    result.stockIds.push(inserted.id);
+  }
+  for (const row of effect.supplyRows) {
+    const [inserted] = await db.insert(supplyTransactions).values({
+      clientId,
+      supplyId: row.supplyId,
+      transactionType: row.transactionType,
+      quantity: row.quantity,
+      transactionDate: row.transactionDate,
+      manufacturerName: row.manufacturerName ?? null,
+      reference: row.reference ?? null,
+      notes: row.notes ?? null,
+      relatedPoId: row.relatedPoId ?? null,
+      createdBy: userId
+    }).returning({ id: supplyTransactions.id });
+    result.supplyIds.push(inserted.id);
+  }
+  return result;
+}
+
+// server/movements/routes.ts
+var movementsRouter = Router();
+var baseProduct = {
+  subjectKind: z4.literal("product"),
+  skuCode: z4.string().min(1).max(50),
+  quantity: z4.number().positive(),
+  date: z4.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+};
+var baseSupply = {
+  subjectKind: z4.literal("supply"),
+  supplyId: z4.number().int().positive(),
+  quantity: z4.number().positive(),
+  date: z4.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+};
+var movementSchema = z4.discriminatedUnion("type", [
+  z4.object({ type: z4.literal("OPENING_BALANCE"), ...baseProduct, location: z4.string().min(1).max(10) }),
+  z4.object({
+    type: z4.literal("DELIVERY_RECEIVED"),
+    ...baseProduct,
+    location: z4.string().min(1).max(10),
+    deliveryNoteRef: z4.string().max(100).optional(),
+    batchNumber: z4.string().min(1).max(100),
+    manufactureDate: z4.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    expiryDate: z4.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    sizeVariant: z4.string().max(50).optional()
+  }),
+  z4.object({
+    type: z4.literal("ADJUSTMENT_IN"),
+    ...baseProduct,
+    location: z4.string().min(1).max(10),
+    reasonText: z4.string().min(1).max(500)
+  }),
+  z4.object({
+    type: z4.literal("ADJUSTMENT_OUT"),
+    ...baseProduct,
+    location: z4.string().min(1).max(10),
+    reasonText: z4.string().min(1).max(500)
+  }),
+  z4.object({
+    type: z4.literal("TRANSFER"),
+    ...baseProduct,
+    fromLocation: z4.string().min(1).max(10),
+    toLocation: z4.string().min(1).max(10)
+  }),
+  z4.object({
+    type: z4.literal("SALES_OUT"),
+    ...baseProduct,
+    location: z4.string().min(1).max(10),
+    invoiceRef: z4.string().max(100).optional(),
+    channel: z4.string().max(5).optional(),
+    reasonText: z4.string().max(500).optional()
+  }),
+  z4.object({ type: z4.literal("OPENING_BALANCE"), ...baseSupply }),
+  z4.object({
+    type: z4.literal("DELIVERY_RECEIVED"),
+    ...baseSupply,
+    reference: z4.string().max(255).optional()
+  }),
+  z4.object({
+    type: z4.literal("ADJUSTMENT_IN"),
+    ...baseSupply,
+    reasonText: z4.string().min(1).max(500)
+  }),
+  z4.object({
+    type: z4.literal("ADJUSTMENT_OUT"),
+    ...baseSupply,
+    reasonText: z4.string().min(1).max(500)
+  }),
+  z4.object({
+    type: z4.literal("SUPPLY_SENT_TO_MANUFACTURER"),
+    ...baseSupply,
+    manufacturerName: z4.string().max(255).optional(),
+    reference: z4.string().max(255).optional(),
+    relatedPoId: z4.number().int().positive().optional()
+  })
+]);
+movementsRouter.post("/", isAuthenticated, async (req, res) => {
+  try {
+    const clientId = getClientId(req);
+    const user = req.user;
+    const parsed = movementSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: "Invalid movement input", errors: parsed.error.flatten() });
+    }
+    const input = parsed.data;
+    const result = await recordMovement(clientId, user.id, input);
+    const subjectLabel = input.subjectKind === "product" ? input.skuCode : `supply #${input.supplyId}`;
+    logAudit(req, `MOVEMENT_${input.type}`, {
+      resourceType: input.subjectKind === "product" ? "Product" : "Supply",
+      resourceId: subjectLabel,
+      detail: `${input.quantity} units \xB7 ${input.date}`,
+      afterValue: result
+    });
+    res.json(result);
+  } catch (err) {
+    if (err.code === "INVALID_MOVEMENT") {
+      return res.status(400).json({ message: err.message, errors: err.errors });
+    }
+    res.status(500).json({ message: "Failed to record movement", error: err.message });
+  }
+});
+function registerMovementRoutes(router2) {
+  router2.use("/api/movements", movementsRouter);
+}
+
 // server/api.ts
 var app = express();
 var PgSession = connectPgSimple(session);
@@ -3805,6 +4168,7 @@ registerXeroAuthRoutes(router);
 registerPnpRoutes(router);
 registerOpeningBalanceRoutes(router);
 registerSupplyRoutes(router);
+registerMovementRoutes(router);
 app.use(router);
 app.use((err, _req, res, _next) => {
   console.error("Unhandled error:", err);
