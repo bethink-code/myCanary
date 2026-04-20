@@ -26,9 +26,12 @@ const baseSupply = {
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 };
 
-// Discriminated unions matching the pure types. Zod validates shape; the
-// pure validateMovement() handles semantic rules (e.g. fromLocation != to).
-const movementSchema = z.discriminatedUnion("type", [
+// Product and supply are separate domains that happen to share `type` names
+// (OPENING_BALANCE, DELIVERY_RECEIVED, etc.), so each gets its own
+// discriminated-union over `type`, joined by a plain union discriminating
+// on `subjectKind`. Zod validates shape; pure validateMovement() handles
+// semantic rules (e.g. fromLocation != toLocation).
+const productMovement = z.discriminatedUnion("type", [
   z.object({ type: z.literal("OPENING_BALANCE"), ...baseProduct, location: z.string().min(1).max(10) }),
   z.object({
     type: z.literal("DELIVERY_RECEIVED"),
@@ -66,6 +69,9 @@ const movementSchema = z.discriminatedUnion("type", [
     channel: z.string().max(5).optional(),
     reasonText: z.string().max(500).optional(),
   }),
+]);
+
+const supplyMovement = z.discriminatedUnion("type", [
   z.object({ type: z.literal("OPENING_BALANCE"), ...baseSupply }),
   z.object({
     type: z.literal("DELIVERY_RECEIVED"),
@@ -90,6 +96,8 @@ const movementSchema = z.discriminatedUnion("type", [
     relatedPoId: z.number().int().positive().optional(),
   }),
 ]);
+
+const movementSchema = z.union([productMovement, supplyMovement]);
 
 movementsRouter.post("/", isAuthenticated, async (req, res) => {
   try {

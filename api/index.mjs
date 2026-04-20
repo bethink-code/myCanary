@@ -4028,7 +4028,7 @@ var baseSupply = {
   quantity: z4.number().positive(),
   date: z4.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 };
-var movementSchema = z4.discriminatedUnion("type", [
+var productMovement = z4.discriminatedUnion("type", [
   z4.object({ type: z4.literal("OPENING_BALANCE"), ...baseProduct, location: z4.string().min(1).max(10) }),
   z4.object({
     type: z4.literal("DELIVERY_RECEIVED"),
@@ -4065,7 +4065,9 @@ var movementSchema = z4.discriminatedUnion("type", [
     invoiceRef: z4.string().max(100).optional(),
     channel: z4.string().max(5).optional(),
     reasonText: z4.string().max(500).optional()
-  }),
+  })
+]);
+var supplyMovement = z4.discriminatedUnion("type", [
   z4.object({ type: z4.literal("OPENING_BALANCE"), ...baseSupply }),
   z4.object({
     type: z4.literal("DELIVERY_RECEIVED"),
@@ -4090,6 +4092,7 @@ var movementSchema = z4.discriminatedUnion("type", [
     relatedPoId: z4.number().int().positive().optional()
   })
 ]);
+var movementSchema = z4.union([productMovement, supplyMovement]);
 movementsRouter.post("/", isAuthenticated, async (req, res) => {
   try {
     const clientId = getClientId(req);
