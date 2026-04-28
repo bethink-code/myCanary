@@ -153,7 +153,15 @@ var products = pgTable("products", {
   caseRoundingRequired: boolean("case_rounding_required").default(false).notNull(),
   // when true, PO qty rounds up to nearest unitsPerCase
   minOrderQty: integer("min_order_qty"),
-  // null = no per-product MOQ
+  // null = no per-product MOQ (in finished pack units)
+  // Manufacturer batch minimum — the smallest run the manufacturer will produce.
+  // batchSizeMinimum is in batchSizeUnit ("tablets" | "units" | "kg").
+  // packSizeUnits is the count-per-pack for tablet/unit-based packs (chews=30, sprays=1);
+  // null for kg-based packs which use packSizeG instead.
+  batchSizeMinimum: numeric("batch_size_minimum", { precision: 12, scale: 4 }),
+  batchSizeUnit: varchar("batch_size_unit", { length: 20 }),
+  // "tablets" | "units" | "kg"
+  packSizeUnits: integer("pack_size_units"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
 }, (table) => [
   uniqueIndex("products_client_sku_idx").on(table.clientId, table.skuCode)
@@ -346,8 +354,12 @@ var supplyProductMappings = pgTable("supply_product_mappings", {
   clientId: integer("client_id").references(() => clients.id).notNull(),
   supplyId: integer("supply_id").references(() => supplies.id).notNull(),
   skuCode: varchar("sku_code", { length: 50 }).notNull(),
+  // BOM ratio. Interpreted via quantityBasis: per_unit means "per finished
+  // pack" (default), per_batch means "per manufacturer batch" — converted
+  // to per-pack at PO drafting time using the product's batchSizeMinimum
+  // and pack size.
   quantityPerUnit: numeric("quantity_per_unit", { precision: 12, scale: 4 }).default("1").notNull(),
-  // BOM ratio: how many of this supply per unit of finished product
+  quantityBasis: varchar("quantity_basis", { length: 20 }).default("per_unit").notNull(),
   notes: text("notes")
 }, (table) => [
   uniqueIndex("supply_product_mappings_client_supply_sku_idx").on(
@@ -778,7 +790,10 @@ function registerRoutes(router2) {
     weightKg: z.number().int().positive().nullable().optional(),
     notes: z.string().nullable().optional(),
     caseRoundingRequired: z.boolean().optional(),
-    minOrderQty: z.number().int().positive().nullable().optional()
+    minOrderQty: z.number().int().positive().nullable().optional(),
+    batchSizeMinimum: z.number().positive().nullable().optional(),
+    batchSizeUnit: z.enum(["tablets", "units", "kg"]).nullable().optional(),
+    packSizeUnits: z.number().int().positive().nullable().optional()
   });
   router2.patch("/api/products/:skuCode", isAuthenticated, async (req, res) => {
     try {
@@ -792,7 +807,11 @@ function registerRoutes(router2) {
       if (existing.length === 0) {
         return res.status(404).json({ message: "Product not found" });
       }
-      const updated = await db.update(products).set(parsed.data).where(and(eq2(products.skuCode, skuCode), eq2(products.clientId, clientId))).returning();
+      const setData = { ...parsed.data };
+      if ("batchSizeMinimum" in parsed.data) {
+        setData.batchSizeMinimum = parsed.data.batchSizeMinimum == null ? null : parsed.data.batchSizeMinimum.toString();
+      }
+      const updated = await db.update(products).set(setData).where(and(eq2(products.skuCode, skuCode), eq2(products.clientId, clientId))).returning();
       logAudit(req, "PRODUCT_UPDATED", {
         resourceType: "Product",
         resourceId: skuCode,
@@ -817,7 +836,12 @@ function registerRoutes(router2) {
     apBrandEquivalent: z.string().max(50).nullable().optional(),
     reorderPointOverride: z.number().int().positive().nullable().optional(),
     weightKg: z.number().int().positive().nullable().optional(),
-    notes: z.string().nullable().optional()
+    notes: z.string().nullable().optional(),
+    caseRoundingRequired: z.boolean().optional(),
+    minOrderQty: z.number().int().positive().nullable().optional(),
+    batchSizeMinimum: z.number().positive().nullable().optional(),
+    batchSizeUnit: z.enum(["tablets", "units", "kg"]).nullable().optional(),
+    packSizeUnits: z.number().int().positive().nullable().optional()
   });
   router2.post("/api/products", isAuthenticated, async (req, res) => {
     try {
@@ -844,7 +868,12 @@ function registerRoutes(router2) {
         apBrandEquivalent: parsed.data.apBrandEquivalent ?? null,
         reorderPointOverride: parsed.data.reorderPointOverride ?? null,
         weightKg: parsed.data.weightKg ?? null,
-        notes: parsed.data.notes ?? null
+        notes: parsed.data.notes ?? null,
+        caseRoundingRequired: parsed.data.caseRoundingRequired ?? false,
+        minOrderQty: parsed.data.minOrderQty ?? null,
+        batchSizeMinimum: parsed.data.batchSizeMinimum != null ? parsed.data.batchSizeMinimum.toString() : null,
+        batchSizeUnit: parsed.data.batchSizeUnit ?? null,
+        packSizeUnits: parsed.data.packSizeUnits ?? null
       }).returning();
       logAudit(req, "PRODUCT_CREATED", {
         resourceType: "Product",
