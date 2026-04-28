@@ -11,6 +11,7 @@ import { registerXeroAuthRoutes } from "./xeroAuth";
 import { registerOpeningBalanceRoutes } from "./openingBalanceImport";
 import { registerSupplyRoutes } from "./supplies";
 import { registerMovementRoutes } from "./movements/routes";
+import { registerSalesSummaryRoutes } from "./salesSummary";
 import { clientContext } from "./clientContext";
 
 const app = express();
@@ -123,6 +124,7 @@ registerPnpRoutes(router);
 registerOpeningBalanceRoutes(router);
 registerSupplyRoutes(router);
 registerMovementRoutes(router);
+registerSalesSummaryRoutes(router);
 app.use(router);
 
 // ─── Error Handler ─────────────────────────────────────

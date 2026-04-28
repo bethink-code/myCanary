@@ -59,3 +59,27 @@ export function calcRecommendedOrderQty(currentStock: number, reorderPoint: numb
   const target = reorderPoint * 2;
   return Math.max(0, target - currentStock);
 }
+
+export interface StockHealthBuckets {
+  reorder: number;
+  approaching: number;
+  healthy: number;
+  total: number;
+}
+
+/** Aggregate per-item status into REORDER / APPROACHING / HEALTHY buckets. */
+export function calcStockHealthBuckets(
+  items: { currentStock: number; reorderPoint: number | null }[],
+): StockHealthBuckets {
+  let reorder = 0;
+  let approaching = 0;
+  let healthy = 0;
+  for (const item of items) {
+    const status = calcStockStatus(item.currentStock, item.reorderPoint);
+    if (status === "REORDER") reorder++;
+    else if (status === "APPROACHING") approaching++;
+    else if (status === "OK") healthy++;
+    // N/A and NO_DATA are excluded from all three buckets.
+  }
+  return { reorder, approaching, healthy, total: items.length };
+}
