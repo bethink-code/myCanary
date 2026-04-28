@@ -14,6 +14,11 @@
 
 export type StockLocation = string; // "THH" | "88" typically; free-text-compatible
 
+// Supply locations: physical places supplies sit. Sum of supply_transactions
+// per location gives the current balance at that location.
+export const SUPPLY_LOCATIONS = ["THH", "Zinchar", "NutriMed"] as const;
+export type SupplyLocation = (typeof SUPPLY_LOCATIONS)[number];
+
 export type ProductMovement =
   | {
       type: "OPENING_BALANCE";
@@ -80,6 +85,7 @@ export type SupplyMovement =
       type: "OPENING_BALANCE";
       subjectKind: "supply";
       supplyId: number;
+      location: SupplyLocation;
       quantity: number;
       date: string;
     }
@@ -87,6 +93,7 @@ export type SupplyMovement =
       type: "DELIVERY_RECEIVED";
       subjectKind: "supply";
       supplyId: number;
+      location: SupplyLocation;
       quantity: number;
       date: string;
       reference?: string;
@@ -95,6 +102,7 @@ export type SupplyMovement =
       type: "ADJUSTMENT_IN";
       subjectKind: "supply";
       supplyId: number;
+      location: SupplyLocation;
       quantity: number;
       date: string;
       reasonText: string;
@@ -103,14 +111,26 @@ export type SupplyMovement =
       type: "ADJUSTMENT_OUT";
       subjectKind: "supply";
       supplyId: number;
+      location: SupplyLocation;
       quantity: number;
       date: string;
       reasonText: string;
     }
   | {
+      type: "SUPPLY_TRANSFER";
+      subjectKind: "supply";
+      supplyId: number;
+      fromLocation: SupplyLocation;
+      toLocation: SupplyLocation;
+      quantity: number;
+      date: string;
+    }
+  | {
       type: "SUPPLY_SENT_TO_MANUFACTURER";
       subjectKind: "supply";
       supplyId: number;
+      fromLocation: SupplyLocation;
+      toLocation: SupplyLocation;
       quantity: number;
       date: string;
       manufacturerName?: string;
@@ -135,6 +155,7 @@ export interface StockLedgerRow {
 
 export interface SupplyLedgerRow {
   supplyId: number;
+  location: SupplyLocation;
   transactionType: string;
   quantity: number; // signed
   transactionDate: string;
@@ -208,6 +229,23 @@ export function validateMovement(input: MovementInput): string[] {
   } else {
     if (!Number.isInteger(input.supplyId) || input.supplyId <= 0) {
       errors.push("supplyId must be a positive integer");
+    }
+    if (input.type === "SUPPLY_TRANSFER" || input.type === "SUPPLY_SENT_TO_MANUFACTURER") {
+      errors.push(...requireText(input.fromLocation, "fromLocation"));
+      errors.push(...requireText(input.toLocation, "toLocation"));
+      if (input.fromLocation === input.toLocation) errors.push("fromLocation and toLocation must differ");
+      if (input.fromLocation && !SUPPLY_LOCATIONS.includes(input.fromLocation as SupplyLocation)) {
+        errors.push(`fromLocation must be one of ${SUPPLY_LOCATIONS.join(", ")}`);
+      }
+      if (input.toLocation && !SUPPLY_LOCATIONS.includes(input.toLocation as SupplyLocation)) {
+        errors.push(`toLocation must be one of ${SUPPLY_LOCATIONS.join(", ")}`);
+      }
+    } else {
+      const loc = (input as { location: string }).location;
+      errors.push(...requireText(loc, "location"));
+      if (loc && !SUPPLY_LOCATIONS.includes(loc as SupplyLocation)) {
+        errors.push(`location must be one of ${SUPPLY_LOCATIONS.join(", ")}`);
+      }
     }
     if (input.type === "ADJUSTMENT_IN" || input.type === "ADJUSTMENT_OUT") {
       errors.push(...requireText(input.reasonText, "reasonText"));
@@ -317,6 +355,7 @@ export function movementToLedger(input: MovementInput): LedgerEffect {
       case "OPENING_BALANCE":
         effect.supplyRows.push({
           supplyId: input.supplyId,
+          location: input.location,
           transactionType: "RECEIVED",
           quantity: input.quantity,
           transactionDate: input.date,
@@ -326,6 +365,7 @@ export function movementToLedger(input: MovementInput): LedgerEffect {
       case "DELIVERY_RECEIVED":
         effect.supplyRows.push({
           supplyId: input.supplyId,
+          location: input.location,
           transactionType: "RECEIVED",
           quantity: input.quantity,
           transactionDate: input.date,
@@ -335,6 +375,7 @@ export function movementToLedger(input: MovementInput): LedgerEffect {
       case "ADJUSTMENT_IN":
         effect.supplyRows.push({
           supplyId: input.supplyId,
+          location: input.location,
           transactionType: "ADJUSTMENT",
           quantity: input.quantity,
           transactionDate: input.date,
@@ -344,17 +385,47 @@ export function movementToLedger(input: MovementInput): LedgerEffect {
       case "ADJUSTMENT_OUT":
         effect.supplyRows.push({
           supplyId: input.supplyId,
+          location: input.location,
           transactionType: "ADJUSTMENT",
           quantity: -input.quantity,
           transactionDate: input.date,
           notes: input.reasonText,
         });
         break;
+      case "SUPPLY_TRANSFER": {
+        const ttype = `SUPPLY_TRANSFER_${input.fromLocation}_TO_${input.toLocation}`;
+        effect.supplyRows.push({
+          supplyId: input.supplyId,
+          location: input.fromLocation,
+          transactionType: ttype,
+          quantity: -input.quantity,
+          transactionDate: input.date,
+        });
+        effect.supplyRows.push({
+          supplyId: input.supplyId,
+          location: input.toLocation,
+          transactionType: ttype,
+          quantity: input.quantity,
+          transactionDate: input.date,
+        });
+        break;
+      }
       case "SUPPLY_SENT_TO_MANUFACTURER":
         effect.supplyRows.push({
           supplyId: input.supplyId,
+          location: input.fromLocation,
           transactionType: "SENT_TO_MANUFACTURER",
           quantity: -input.quantity,
+          transactionDate: input.date,
+          manufacturerName: input.manufacturerName ?? null,
+          reference: input.reference ?? null,
+          relatedPoId: input.relatedPoId ?? null,
+        });
+        effect.supplyRows.push({
+          supplyId: input.supplyId,
+          location: input.toLocation,
+          transactionType: "SENT_TO_MANUFACTURER",
+          quantity: input.quantity,
           transactionDate: input.date,
           manufacturerName: input.manufacturerName ?? null,
           reference: input.reference ?? null,
@@ -384,5 +455,6 @@ export const MOVEMENT_TYPES: MovementTypeMeta[] = [
   { type: "ADJUSTMENT_OUT", direction: "out", subjectKinds: ["product", "supply"], label: "Adjustment (correction down / write-off)", requiresReason: true },
   { type: "TRANSFER", direction: "out", subjectKinds: ["product"], label: "Transfer between locations", requiresReason: false },
   { type: "SALES_OUT", direction: "out", subjectKinds: ["product"], label: "Sales / dispatch", requiresReason: false },
-  { type: "SUPPLY_SENT_TO_MANUFACTURER", direction: "out", subjectKinds: ["supply"], label: "Sent to manufacturer", requiresReason: false },
+  { type: "SUPPLY_TRANSFER", direction: "out", subjectKinds: ["supply"], label: "Transfer between locations", requiresReason: false },
+  { type: "SUPPLY_SENT_TO_MANUFACTURER", direction: "out", subjectKinds: ["supply"], label: "Send to manufacturer", requiresReason: false },
 ];

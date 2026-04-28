@@ -95,6 +95,7 @@ export async function recordMovement(
       .values({
         clientId,
         supplyId: row.supplyId,
+        location: row.location,
         transactionType: row.transactionType,
         quantity: row.quantity,
         transactionDate: row.transactionDate,

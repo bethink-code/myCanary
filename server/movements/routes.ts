@@ -9,7 +9,7 @@ import { isAuthenticated } from "../routes";
 import { getClientId } from "../clientContext";
 import { logAudit } from "../auditLog";
 import { recordMovement } from "./storage";
-import type { MovementInput } from "../../shared/calculations/movements";
+import { SUPPLY_LOCATIONS, type MovementInput } from "../../shared/calculations/movements";
 
 export const movementsRouter = Router();
 
@@ -71,26 +71,39 @@ const productMovement = z.discriminatedUnion("type", [
   }),
 ]);
 
+const supplyLocation = z.enum(SUPPLY_LOCATIONS);
+
 const supplyMovement = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("OPENING_BALANCE"), ...baseSupply }),
+  z.object({ type: z.literal("OPENING_BALANCE"), ...baseSupply, location: supplyLocation }),
   z.object({
     type: z.literal("DELIVERY_RECEIVED"),
     ...baseSupply,
+    location: supplyLocation,
     reference: z.string().max(255).optional(),
   }),
   z.object({
     type: z.literal("ADJUSTMENT_IN"),
     ...baseSupply,
+    location: supplyLocation,
     reasonText: z.string().min(1).max(500),
   }),
   z.object({
     type: z.literal("ADJUSTMENT_OUT"),
     ...baseSupply,
+    location: supplyLocation,
     reasonText: z.string().min(1).max(500),
+  }),
+  z.object({
+    type: z.literal("SUPPLY_TRANSFER"),
+    ...baseSupply,
+    fromLocation: supplyLocation,
+    toLocation: supplyLocation,
   }),
   z.object({
     type: z.literal("SUPPLY_SENT_TO_MANUFACTURER"),
     ...baseSupply,
+    fromLocation: supplyLocation,
+    toLocation: supplyLocation,
     manufacturerName: z.string().max(255).optional(),
     reference: z.string().max(255).optional(),
     relatedPoId: z.number().int().positive().optional(),

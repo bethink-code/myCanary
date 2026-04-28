@@ -23,11 +23,8 @@ export const clients = pgTable("clients", {
 });
 
 // ─── Platform: Auth & Users (NO clientId) ───────────────────
-export const sessions = pgTable("sessions", {
-  sid: varchar("sid", { length: 255 }).primaryKey(),
-  sess: json("sess").notNull(),
-  expire: timestamp("expire", { withTimezone: true }).notNull(),
-});
+// Session storage is owned by connect-pg-simple (`session` table).
+// It is excluded from Drizzle's purview via `tablesFilter` in drizzle.config.ts.
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -165,6 +162,7 @@ export const purchaseOrders = pgTable("purchase_orders", {
   approvedAt: timestamp("approved_at", { withTimezone: true }),
   sentAt: timestamp("sent_at", { withTimezone: true }),
   expectedDeliveryDate: date("expected_delivery_date"),
+  deliveredAt: timestamp("delivered_at", { withTimezone: true }),
   notes: text("notes"),
   draftEmailBody: text("draft_email_body"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
@@ -292,9 +290,10 @@ export const supplyTransactions = pgTable("supply_transactions", {
   id: serial("id").primaryKey(),
   clientId: integer("client_id").references(() => clients.id).notNull(),
   supplyId: integer("supply_id").references(() => supplies.id).notNull(),
-  transactionType: varchar("transaction_type", { length: 30 }).notNull(), // RECEIVED, SENT_TO_MANUFACTURER, ADJUSTMENT, WRITE_OFF
+  transactionType: varchar("transaction_type", { length: 30 }).notNull(), // RECEIVED, SENT_TO_MANUFACTURER, SUPPLY_TRANSFER, ADJUSTMENT, WRITE_OFF
   quantity: integer("quantity").notNull(), // positive for in, negative for out
   transactionDate: date("transaction_date").notNull(),
+  location: varchar("location", { length: 10 }).notNull().default("THH"), // THH, Zinchar, NutriMed
   relatedPoId: integer("related_po_id").references(() => purchaseOrders.id),
   manufacturerName: varchar("manufacturer_name", { length: 255 }),
   reference: varchar("reference", { length: 255 }),

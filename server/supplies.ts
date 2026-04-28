@@ -3,10 +3,20 @@ import multer from "multer";
 import * as XLSX from "xlsx";
 import { db } from "./db";
 import { supplies, supplyTransactions } from "../shared/schema";
-import { eq, and, desc, sum, sql } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import { logAudit } from "./auditLog";
 import { isAuthenticated } from "./routes";
 import { getClientId } from "./clientContext";
+import { SUPPLY_LOCATIONS, type SupplyLocation } from "../shared/calculations/movements";
+
+type ByLocation = Record<SupplyLocation, number>;
+
+function emptyByLocation(): ByLocation {
+  return SUPPLY_LOCATIONS.reduce((acc, loc) => {
+    acc[loc] = 0;
+    return acc;
+  }, {} as ByLocation);
+}
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
@@ -24,10 +34,14 @@ function parseLeadingNumber(val: unknown): number {
   return isNaN(n) ? 0 : n;
 }
 
-/** Get the current stock (sum of transactions) for a supply */
-async function getCurrentStock(clientId: number, supplyId: number): Promise<number> {
+/** Get current stock per location for a supply */
+async function getCurrentStockByLocation(clientId: number, supplyId: number): Promise<ByLocation> {
   const row = await db
-    .select({ total: sum(supplyTransactions.quantity).mapWith(Number) })
+    .select({
+      thh: sql<number>`COALESCE(SUM(CASE WHEN ${supplyTransactions.location} = 'THH' THEN ${supplyTransactions.quantity} ELSE 0 END), 0)`.mapWith(Number),
+      zinchar: sql<number>`COALESCE(SUM(CASE WHEN ${supplyTransactions.location} = 'Zinchar' THEN ${supplyTransactions.quantity} ELSE 0 END), 0)`.mapWith(Number),
+      nutrimed: sql<number>`COALESCE(SUM(CASE WHEN ${supplyTransactions.location} = 'NutriMed' THEN ${supplyTransactions.quantity} ELSE 0 END), 0)`.mapWith(Number),
+    })
     .from(supplyTransactions)
     .where(
       and(
@@ -35,7 +49,31 @@ async function getCurrentStock(clientId: number, supplyId: number): Promise<numb
         eq(supplyTransactions.supplyId, supplyId),
       )
     );
-  return row[0]?.total ?? 0;
+  return {
+    THH: row[0]?.thh ?? 0,
+    Zinchar: row[0]?.zinchar ?? 0,
+    NutriMed: row[0]?.nutrimed ?? 0,
+  };
+}
+
+/** Get current stock per location for ALL supplies in one query */
+async function getAllSuppliesByLocation(clientId: number): Promise<Map<number, ByLocation>> {
+  const rows = await db
+    .select({
+      supplyId: supplyTransactions.supplyId,
+      thh: sql<number>`COALESCE(SUM(CASE WHEN ${supplyTransactions.location} = 'THH' THEN ${supplyTransactions.quantity} ELSE 0 END), 0)`.mapWith(Number),
+      zinchar: sql<number>`COALESCE(SUM(CASE WHEN ${supplyTransactions.location} = 'Zinchar' THEN ${supplyTransactions.quantity} ELSE 0 END), 0)`.mapWith(Number),
+      nutrimed: sql<number>`COALESCE(SUM(CASE WHEN ${supplyTransactions.location} = 'NutriMed' THEN ${supplyTransactions.quantity} ELSE 0 END), 0)`.mapWith(Number),
+    })
+    .from(supplyTransactions)
+    .where(eq(supplyTransactions.clientId, clientId))
+    .groupBy(supplyTransactions.supplyId);
+
+  const map = new Map<number, ByLocation>();
+  for (const r of rows) {
+    map.set(r.supplyId, { THH: r.thh, Zinchar: r.zinchar, NutriMed: r.nutrimed });
+  }
+  return map;
 }
 
 // ─── Import Parsing ───────────────────────────────────
@@ -187,7 +225,7 @@ function parsePackagingTab(sheet: XLSX.WorkSheet): ParsedSupplyRow[] {
 
 export function registerSupplyRoutes(router: Router) {
 
-  // ─── GET /api/supplies — list all with current stock ───
+  // ─── GET /api/supplies — list all with current stock per location + total ───
   router.get("/api/supplies", isAuthenticated, async (req, res) => {
     try {
       const clientId = getClientId(req);
@@ -209,21 +247,20 @@ export function registerSupplyRoutes(router: Router) {
           isActive: supplies.isActive,
           notes: supplies.notes,
           createdAt: supplies.createdAt,
-          currentStock: sql<number>`COALESCE(SUM(${supplyTransactions.quantity}), 0)`.mapWith(Number),
         })
         .from(supplies)
-        .leftJoin(
-          supplyTransactions,
-          and(
-            eq(supplyTransactions.supplyId, supplies.id),
-            eq(supplyTransactions.clientId, supplies.clientId),
-          )
-        )
         .where(eq(supplies.clientId, clientId))
-        .groupBy(supplies.id)
         .orderBy(supplies.name);
 
-      res.json(rows);
+      const byLocationMap = await getAllSuppliesByLocation(clientId);
+
+      const enriched = rows.map((r) => {
+        const byLocation = byLocationMap.get(r.id) ?? emptyByLocation();
+        const currentStock = byLocation.THH + byLocation.Zinchar + byLocation.NutriMed;
+        return { ...r, currentStock, byLocation };
+      });
+
+      res.json(enriched);
     } catch (err: any) {
       res.status(500).json({ message: "Failed to fetch supplies", error: err.message });
     }
@@ -247,7 +284,8 @@ export function registerSupplyRoutes(router: Router) {
         return res.status(404).json({ message: "Supply not found" });
       }
 
-      const currentStock = await getCurrentStock(clientId, supplyId);
+      const byLocation = await getCurrentStockByLocation(clientId, supplyId);
+      const currentStock = byLocation.THH + byLocation.Zinchar + byLocation.NutriMed;
 
       const transactions = await db
         .select()
@@ -261,7 +299,7 @@ export function registerSupplyRoutes(router: Router) {
         .orderBy(desc(supplyTransactions.createdAt))
         .limit(50);
 
-      res.json({ ...supply, currentStock, transactions });
+      res.json({ ...supply, currentStock, byLocation, transactions });
     } catch (err: any) {
       res.status(500).json({ message: "Failed to fetch supply detail", error: err.message });
     }
@@ -362,183 +400,10 @@ export function registerSupplyRoutes(router: Router) {
     }
   });
 
-  // ─── POST /api/supplies/:id/receive — record received stock ───
-  router.post("/api/supplies/:id/receive", isAuthenticated, async (req, res) => {
-    try {
-      const clientId = getClientId(req);
-      const supplyId = parseInt(req.params.id, 10);
-      if (isNaN(supplyId)) {
-        return res.status(400).json({ message: "Invalid supply ID" });
-      }
-
-      const { quantity, reference, notes, transactionDate } = req.body;
-      if (!quantity || quantity <= 0) {
-        return res.status(400).json({ message: "quantity must be a positive number" });
-      }
-
-      const [supply] = await db
-        .select()
-        .from(supplies)
-        .where(and(eq(supplies.id, supplyId), eq(supplies.clientId, clientId)));
-
-      if (!supply) {
-        return res.status(404).json({ message: "Supply not found" });
-      }
-
-      const user = req.user as any;
-      const txnDate = transactionDate || new Date().toISOString().split("T")[0];
-
-      const [txn] = await db
-        .insert(supplyTransactions)
-        .values({
-          clientId,
-          supplyId,
-          transactionType: "RECEIVED",
-          quantity: Math.abs(Math.round(quantity)),
-          transactionDate: txnDate,
-          reference: reference || null,
-          notes: notes || null,
-          createdBy: user?.id ?? null,
-        })
-        .returning();
-
-      logAudit(req, "SUPPLY_RECEIVED", {
-        resourceType: "SupplyTransaction",
-        resourceId: String(txn.id),
-        detail: `Received ${quantity} of ${supply.name}`,
-        afterValue: txn,
-      });
-
-      res.status(201).json(txn);
-    } catch (err: any) {
-      res.status(500).json({ message: "Failed to record supply receipt", error: err.message });
-    }
-  });
-
-  // ─── POST /api/supplies/:id/send — sent to manufacturer ───
-  router.post("/api/supplies/:id/send", isAuthenticated, async (req, res) => {
-    try {
-      const clientId = getClientId(req);
-      const supplyId = parseInt(req.params.id, 10);
-      if (isNaN(supplyId)) {
-        return res.status(400).json({ message: "Invalid supply ID" });
-      }
-
-      const { quantity, manufacturerName, relatedPoId, reference, notes } = req.body;
-      if (!quantity || quantity <= 0) {
-        return res.status(400).json({ message: "quantity must be a positive number" });
-      }
-      if (!manufacturerName) {
-        return res.status(400).json({ message: "manufacturerName is required" });
-      }
-
-      const [supply] = await db
-        .select()
-        .from(supplies)
-        .where(and(eq(supplies.id, supplyId), eq(supplies.clientId, clientId)));
-
-      if (!supply) {
-        return res.status(404).json({ message: "Supply not found" });
-      }
-
-      const user = req.user as any;
-      const txnDate = new Date().toISOString().split("T")[0];
-
-      const [txn] = await db
-        .insert(supplyTransactions)
-        .values({
-          clientId,
-          supplyId,
-          transactionType: "SENT_TO_MANUFACTURER",
-          quantity: -Math.abs(Math.round(quantity)),
-          transactionDate: txnDate,
-          manufacturerName,
-          relatedPoId: relatedPoId || null,
-          reference: reference || null,
-          notes: notes || null,
-          createdBy: user?.id ?? null,
-        })
-        .returning();
-
-      logAudit(req, "SUPPLY_SENT", {
-        resourceType: "SupplyTransaction",
-        resourceId: String(txn.id),
-        detail: `Sent ${quantity} of ${supply.name} to ${manufacturerName}`,
-        afterValue: txn,
-      });
-
-      res.status(201).json(txn);
-    } catch (err: any) {
-      res.status(500).json({ message: "Failed to record supply dispatch", error: err.message });
-    }
-  });
-
-  // ─── POST /api/supplies/:id/adjust — stock adjustment ───
-  router.post("/api/supplies/:id/adjust", isAuthenticated, async (req, res) => {
-    try {
-      const clientId = getClientId(req);
-      const supplyId = parseInt(req.params.id, 10);
-      if (isNaN(supplyId)) {
-        return res.status(400).json({ message: "Invalid supply ID" });
-      }
-
-      const { newQuantity, reason, notes } = req.body;
-      if (newQuantity == null || newQuantity < 0) {
-        return res.status(400).json({ message: "newQuantity must be a non-negative number" });
-      }
-      if (!reason) {
-        return res.status(400).json({ message: "reason is required" });
-      }
-      if (!notes) {
-        return res.status(400).json({ message: "notes are required for adjustments" });
-      }
-
-      const [supply] = await db
-        .select()
-        .from(supplies)
-        .where(and(eq(supplies.id, supplyId), eq(supplies.clientId, clientId)));
-
-      if (!supply) {
-        return res.status(404).json({ message: "Supply not found" });
-      }
-
-      const currentStock = await getCurrentStock(clientId, supplyId);
-      const delta = Math.round(newQuantity) - currentStock;
-
-      if (delta === 0) {
-        return res.json({ message: "No adjustment needed — stock already at that level", noChange: true });
-      }
-
-      const user = req.user as any;
-      const txnDate = new Date().toISOString().split("T")[0];
-
-      const [txn] = await db
-        .insert(supplyTransactions)
-        .values({
-          clientId,
-          supplyId,
-          transactionType: "ADJUSTMENT",
-          quantity: delta,
-          transactionDate: txnDate,
-          reference: `Adjustment: ${currentStock} → ${Math.round(newQuantity)}`,
-          notes: `[${reason}] ${notes}`,
-          createdBy: user?.id ?? null,
-        })
-        .returning();
-
-      logAudit(req, "SUPPLY_ADJUSTMENT", {
-        resourceType: "SupplyTransaction",
-        resourceId: String(txn.id),
-        detail: `${reason}: ${supply.name} adjusted from ${currentStock} to ${Math.round(newQuantity)} (${delta > 0 ? "+" : ""}${delta}). ${notes}`,
-        beforeValue: { currentStock },
-        afterValue: { newQuantity: Math.round(newQuantity), delta },
-      });
-
-      res.json(txn);
-    } catch (err: any) {
-      res.status(500).json({ message: "Failed to create supply adjustment", error: err.message });
-    }
-  });
+  // Receive/send/adjust legacy POSTs removed 2026-04-28: all supply movements
+  // now flow through the unified /api/movements pipeline (RecordMovementModal).
+  // The legacy routes did not respect the per-row `location` column added in
+  // F1, so retaining them would silently corrupt the location-aware ledger.
 
   // ─── POST /api/supplies/import/preview — parse xlsx file ───
   router.post(
@@ -641,6 +506,7 @@ export function registerSupplyRoutes(router: Router) {
             await db.insert(supplyTransactions).values({
               clientId,
               supplyId: item.matchedSupplyId,
+              location: "THH",
               transactionType: "ADJUSTMENT",
               quantity: Math.round(item.totalStock),
               transactionDate: txnDate,
@@ -673,6 +539,7 @@ export function registerSupplyRoutes(router: Router) {
             await db.insert(supplyTransactions).values({
               clientId,
               supplyId: newSupply.id,
+              location: "THH",
               transactionType: "RECEIVED",
               quantity: Math.round(item.totalStock),
               transactionDate: txnDate,

@@ -62,11 +62,37 @@ test("validate: adjustment requires reasonText (supply)", () => {
     type: "ADJUSTMENT_OUT",
     subjectKind: "supply",
     supplyId: 1,
+    location: "THH",
     quantity: 5,
     date: "2026-04-17",
     reasonText: "",
   });
   assert.ok(errs.some((e) => e.includes("reasonText")));
+});
+
+test("validate: supply movement rejects unknown location", () => {
+  const errs = validateMovement({
+    type: "OPENING_BALANCE",
+    subjectKind: "supply",
+    supplyId: 1,
+    location: "Mars" as never,
+    quantity: 10,
+    date: "2026-04-17",
+  });
+  assert.ok(errs.some((e) => e.includes("location")));
+});
+
+test("validate: supply transfer rejects same from and to", () => {
+  const errs = validateMovement({
+    type: "SUPPLY_TRANSFER",
+    subjectKind: "supply",
+    supplyId: 1,
+    fromLocation: "THH",
+    toLocation: "THH",
+    quantity: 10,
+    date: "2026-04-17",
+  });
+  assert.ok(errs.some((e) => e.includes("differ")));
 });
 
 test("validate: transfer requires different from and to", () => {
@@ -121,6 +147,8 @@ test("validate: happy path supply sent to manufacturer", () => {
     type: "SUPPLY_SENT_TO_MANUFACTURER",
     subjectKind: "supply",
     supplyId: 5,
+    fromLocation: "THH",
+    toLocation: "Zinchar",
     quantity: 10,
     date: "2026-04-17",
     manufacturerName: "Zinchar",
@@ -221,11 +249,12 @@ test("transform: sales out -> negative with invoice ref + channel", () => {
   assert.equal(out.stockRows[0].channel, "D");
 });
 
-test("transform: supply received -> positive RECEIVED row", () => {
+test("transform: supply received -> positive RECEIVED row at location", () => {
   const out = movementToLedger({
     type: "DELIVERY_RECEIVED",
     subjectKind: "supply",
     supplyId: 5,
+    location: "THH",
     quantity: 500,
     date: "2026-04-17",
     reference: "PO #42",
@@ -233,36 +262,65 @@ test("transform: supply received -> positive RECEIVED row", () => {
   assert.equal(out.supplyRows.length, 1);
   assert.equal(out.supplyRows[0].transactionType, "RECEIVED");
   assert.equal(out.supplyRows[0].quantity, 500);
+  assert.equal(out.supplyRows[0].location, "THH");
   assert.equal(out.supplyRows[0].reference, "PO #42");
   assert.equal(out.stockRows.length, 0);
 });
 
-test("transform: supply sent to manufacturer -> negative SENT_TO_MANUFACTURER row", () => {
+test("transform: supply sent to manufacturer -> paired rows, opposite signs", () => {
   const out = movementToLedger({
     type: "SUPPLY_SENT_TO_MANUFACTURER",
     subjectKind: "supply",
     supplyId: 5,
+    fromLocation: "THH",
+    toLocation: "Zinchar",
     quantity: 200,
     date: "2026-04-17",
     manufacturerName: "Zinchar",
     relatedPoId: 77,
   });
-  assert.equal(out.supplyRows[0].quantity, -200);
-  assert.equal(out.supplyRows[0].transactionType, "SENT_TO_MANUFACTURER");
-  assert.equal(out.supplyRows[0].manufacturerName, "Zinchar");
-  assert.equal(out.supplyRows[0].relatedPoId, 77);
+  assert.equal(out.supplyRows.length, 2);
+  const from = out.supplyRows.find((r) => r.location === "THH")!;
+  const to = out.supplyRows.find((r) => r.location === "Zinchar")!;
+  assert.equal(from.quantity, -200);
+  assert.equal(to.quantity, 200);
+  assert.equal(from.transactionType, "SENT_TO_MANUFACTURER");
+  assert.equal(to.transactionType, "SENT_TO_MANUFACTURER");
+  assert.equal(to.manufacturerName, "Zinchar");
+  assert.equal(to.relatedPoId, 77);
 });
 
-test("transform: supply adjustment out -> ADJUSTMENT negative with notes", () => {
+test("transform: supply transfer -> paired rows, opposite signs, matching type", () => {
+  const out = movementToLedger({
+    type: "SUPPLY_TRANSFER",
+    subjectKind: "supply",
+    supplyId: 5,
+    fromLocation: "Zinchar",
+    toLocation: "NutriMed",
+    quantity: 30,
+    date: "2026-04-17",
+  });
+  assert.equal(out.supplyRows.length, 2);
+  const from = out.supplyRows.find((r) => r.location === "Zinchar")!;
+  const to = out.supplyRows.find((r) => r.location === "NutriMed")!;
+  assert.equal(from.quantity, -30);
+  assert.equal(to.quantity, 30);
+  assert.equal(from.transactionType, "SUPPLY_TRANSFER_Zinchar_TO_NutriMed");
+  assert.equal(to.transactionType, "SUPPLY_TRANSFER_Zinchar_TO_NutriMed");
+});
+
+test("transform: supply adjustment out -> ADJUSTMENT negative with notes at location", () => {
   const out = movementToLedger({
     type: "ADJUSTMENT_OUT",
     subjectKind: "supply",
     supplyId: 5,
+    location: "Zinchar",
     quantity: 10,
     date: "2026-04-17",
     reasonText: "expired",
   });
   assert.equal(out.supplyRows[0].quantity, -10);
   assert.equal(out.supplyRows[0].transactionType, "ADJUSTMENT");
+  assert.equal(out.supplyRows[0].location, "Zinchar");
   assert.equal(out.supplyRows[0].notes, "expired");
 });

@@ -1444,8 +1444,10 @@ export function registerRoutes(router: Router) {
           status: purchaseOrders.status,
           createdDate: purchaseOrders.createdDate,
           expectedDeliveryDate: purchaseOrders.expectedDeliveryDate,
+          deliveredAt: purchaseOrders.deliveredAt,
           lineCount: count(purchaseOrderLines.id),
           totalUnits: sum(purchaseOrderLines.quantityOrdered),
+          skuSummary: sql<string>`STRING_AGG(DISTINCT ${purchaseOrderLines.skuCode}, ', ' ORDER BY ${purchaseOrderLines.skuCode})`,
         })
         .from(purchaseOrders)
         .leftJoin(manufacturers, eq(purchaseOrders.manufacturerId, manufacturers.id))
@@ -1543,6 +1545,10 @@ export function registerRoutes(router: Router) {
         if (mfr) {
           updates.expectedDeliveryDate = calcExpectedDeliveryDate(now, mfr.standardLeadTimeDays).toISOString().slice(0, 10);
         }
+      }
+
+      if (newStatus === "DELIVERED") {
+        updates.deliveredAt = new Date();
       }
 
       const [updated] = await db
