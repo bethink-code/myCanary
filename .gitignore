@@ -7,3 +7,4 @@ Thumbs.db
 *.code-workspace
 .vscode/
 *.xlsx
+.claude/settings.local.json

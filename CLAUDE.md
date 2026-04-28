@@ -66,3 +66,6 @@ stock-in (green), stock-out (red), warning (amber), info (blue), invoiced (purpl
 - Channel codes from Xero: D=Direct, W=Wholesale, R=Retail, C=PnP, G=AP-Brand
 - Setup Journey: 6 steps (Products, Suppliers, Opening Stock, Reorder Points, Sales Data, Supplies)
 - Canary Snapshot: status line + data/visual lenses + risk filters + working rhythm prompts
+
+## Project Memory
+@.claude/memory/index.md
