@@ -1,6 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { calcSupplyConsumption, bomToMatrixCells, type BomLine } from "./bom.js";
+import {
+  calcSupplyConsumption,
+  bomToMatrixCells,
+  packsPerBatch,
+  perPackFromBatch,
+  resolveBomPerPack,
+  type BomLine,
+} from "./bom.js";
 
 test("calcSupplyConsumption: empty inputs return empty array", () => {
   assert.deepEqual(calcSupplyConsumption([], []), []);
@@ -73,4 +80,93 @@ test("bomToMatrixCells: passes through with renamed fields", () => {
   const cells = bomToMatrixCells(bom);
   assert.equal(cells.length, 2);
   assert.equal(cells[0].quantityPerUnit, 0.5);
+});
+
+// ─── batch-size conversion ──────────────────────────────────
+
+test("packsPerBatch: tablets-based product (chews 30 pack, batch 50000)", () => {
+  const ppb = packsPerBatch({
+    batchSizeMinimum: 50000,
+    batchSizeUnit: "tablets",
+    packSizeUnits: 30,
+    packSizeG: null,
+  });
+  assert.ok(ppb != null);
+  assert.ok(Math.abs(ppb! - 1666.6667) < 0.01);
+});
+
+test("packsPerBatch: kg-based product (formula 500g, batch 20kg)", () => {
+  const ppb = packsPerBatch({
+    batchSizeMinimum: 20,
+    batchSizeUnit: "kg",
+    packSizeUnits: null,
+    packSizeG: 500,
+  });
+  assert.equal(ppb, 40);
+});
+
+test("packsPerBatch: units-based product (spray 200ml = 1 unit, batch 1000)", () => {
+  const ppb = packsPerBatch({
+    batchSizeMinimum: 1000,
+    batchSizeUnit: "units",
+    packSizeUnits: 1,
+    packSizeG: 200,
+  });
+  assert.equal(ppb, 1000);
+});
+
+test("packsPerBatch: returns null when batch info missing", () => {
+  const ppb = packsPerBatch({
+    batchSizeMinimum: null,
+    batchSizeUnit: "tablets",
+    packSizeUnits: 30,
+    packSizeG: null,
+  });
+  assert.equal(ppb, null);
+});
+
+test("packsPerBatch: returns null on unit mismatch (kg batch but no packSizeG)", () => {
+  const ppb = packsPerBatch({
+    batchSizeMinimum: 20,
+    batchSizeUnit: "kg",
+    packSizeUnits: 30, // wrong field for kg-based
+    packSizeG: null,
+  });
+  assert.equal(ppb, null);
+});
+
+test("perPackFromBatch: Allergy Care chews — 20.005 kg Kelp per 50000-tab batch → ~0.012 kg per 30-pack", () => {
+  const perPack = perPackFromBatch(20.005, {
+    batchSizeMinimum: 50000,
+    batchSizeUnit: "tablets",
+    packSizeUnits: 30,
+    packSizeG: null,
+  });
+  assert.ok(perPack != null);
+  assert.ok(Math.abs(perPack! - 0.012003) < 0.0001);
+});
+
+test("resolveBomPerPack: per_unit row passes through unchanged", () => {
+  const out = resolveBomPerPack(
+    { quantityPerUnit: 1, quantityBasis: "per_unit" },
+    { batchSizeMinimum: 50000, batchSizeUnit: "tablets", packSizeUnits: 30, packSizeG: null },
+  );
+  assert.equal(out, 1);
+});
+
+test("resolveBomPerPack: per_batch row converts using product info", () => {
+  const out = resolveBomPerPack(
+    { quantityPerUnit: 20.005, quantityBasis: "per_batch" },
+    { batchSizeMinimum: 50000, batchSizeUnit: "tablets", packSizeUnits: 30, packSizeG: null },
+  );
+  assert.ok(out != null);
+  assert.ok(Math.abs(out! - 0.012003) < 0.0001);
+});
+
+test("resolveBomPerPack: per_batch returns null when product missing batch info", () => {
+  const out = resolveBomPerPack(
+    { quantityPerUnit: 20, quantityBasis: "per_batch" },
+    { batchSizeMinimum: null, batchSizeUnit: null, packSizeUnits: null, packSizeG: null },
+  );
+  assert.equal(out, null);
 });

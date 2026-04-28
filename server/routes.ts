@@ -287,6 +287,9 @@ export function registerRoutes(router: Router) {
     notes: z.string().nullable().optional(),
     caseRoundingRequired: z.boolean().optional(),
     minOrderQty: z.number().int().positive().nullable().optional(),
+    batchSizeMinimum: z.number().positive().nullable().optional(),
+    batchSizeUnit: z.enum(["tablets", "units", "kg"]).nullable().optional(),
+    packSizeUnits: z.number().int().positive().nullable().optional(),
   });
 
   router.patch("/api/products/:skuCode", isAuthenticated, async (req, res) => {
@@ -308,9 +311,15 @@ export function registerRoutes(router: Router) {
         return res.status(404).json({ message: "Product not found" });
       }
 
+      const setData: Record<string, unknown> = { ...parsed.data };
+      if ("batchSizeMinimum" in parsed.data) {
+        setData.batchSizeMinimum =
+          parsed.data.batchSizeMinimum == null ? null : parsed.data.batchSizeMinimum.toString();
+      }
+
       const updated = await db
         .update(products)
-        .set(parsed.data)
+        .set(setData)
         .where(and(eq(products.skuCode, skuCode), eq(products.clientId, clientId)))
         .returning();
 
@@ -342,6 +351,11 @@ export function registerRoutes(router: Router) {
     reorderPointOverride: z.number().int().positive().nullable().optional(),
     weightKg: z.number().int().positive().nullable().optional(),
     notes: z.string().nullable().optional(),
+    caseRoundingRequired: z.boolean().optional(),
+    minOrderQty: z.number().int().positive().nullable().optional(),
+    batchSizeMinimum: z.number().positive().nullable().optional(),
+    batchSizeUnit: z.enum(["tablets", "units", "kg"]).nullable().optional(),
+    packSizeUnits: z.number().int().positive().nullable().optional(),
   });
 
   router.post("/api/products", isAuthenticated, async (req, res) => {
@@ -379,6 +393,11 @@ export function registerRoutes(router: Router) {
           reorderPointOverride: parsed.data.reorderPointOverride ?? null,
           weightKg: parsed.data.weightKg ?? null,
           notes: parsed.data.notes ?? null,
+          caseRoundingRequired: parsed.data.caseRoundingRequired ?? false,
+          minOrderQty: parsed.data.minOrderQty ?? null,
+          batchSizeMinimum: parsed.data.batchSizeMinimum != null ? parsed.data.batchSizeMinimum.toString() : null,
+          batchSizeUnit: parsed.data.batchSizeUnit ?? null,
+          packSizeUnits: parsed.data.packSizeUnits ?? null,
         })
         .returning();
 

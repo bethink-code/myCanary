@@ -11,6 +11,7 @@ const upsertSchema = z.object({
   supplyId: z.number().int().positive(),
   skuCode: z.string().min(1).max(50),
   quantityPerUnit: z.number().positive(),
+  quantityBasis: z.enum(["per_unit", "per_batch"]).optional(),
   notes: z.string().max(2000).nullable().optional(),
 });
 
@@ -20,6 +21,7 @@ interface MappingRow {
   supplyId: number;
   skuCode: string;
   quantityPerUnit: string | number;
+  quantityBasis: string;
   notes: string | null;
 }
 
@@ -61,6 +63,7 @@ export function registerBomMappingRoutes(router: Router) {
           supplyId: supplyProductMappings.supplyId,
           skuCode: supplyProductMappings.skuCode,
           quantityPerUnit: supplyProductMappings.quantityPerUnit,
+          quantityBasis: supplyProductMappings.quantityBasis,
           notes: supplyProductMappings.notes,
           supplyName: supplies.name,
           supplyUnit: supplies.unitOfMeasure,
@@ -91,6 +94,7 @@ export function registerBomMappingRoutes(router: Router) {
           supplyId: supplyProductMappings.supplyId,
           skuCode: supplyProductMappings.skuCode,
           quantityPerUnit: supplyProductMappings.quantityPerUnit,
+          quantityBasis: supplyProductMappings.quantityBasis,
           notes: supplyProductMappings.notes,
         })
         .from(supplyProductMappings)
@@ -122,12 +126,14 @@ export function registerBomMappingRoutes(router: Router) {
         );
 
       if (existing) {
+        const updates: Record<string, unknown> = {
+          quantityPerUnit: parsed.data.quantityPerUnit.toString(),
+          notes: parsed.data.notes ?? null,
+        };
+        if (parsed.data.quantityBasis !== undefined) updates.quantityBasis = parsed.data.quantityBasis;
         const [updated] = await db
           .update(supplyProductMappings)
-          .set({
-            quantityPerUnit: parsed.data.quantityPerUnit.toString(),
-            notes: parsed.data.notes ?? null,
-          })
+          .set(updates)
           .where(eq(supplyProductMappings.id, existing.id))
           .returning();
         logAudit(req, "BOM_MAPPING_UPDATED", {
@@ -146,6 +152,7 @@ export function registerBomMappingRoutes(router: Router) {
           supplyId: parsed.data.supplyId,
           skuCode: parsed.data.skuCode,
           quantityPerUnit: parsed.data.quantityPerUnit.toString(),
+          quantityBasis: parsed.data.quantityBasis ?? "per_unit",
           notes: parsed.data.notes ?? null,
         })
         .returning();

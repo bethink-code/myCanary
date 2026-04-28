@@ -490,6 +490,9 @@ function EditProductModal({
     notes: product.notes ?? "",
     caseRoundingRequired: product.caseRoundingRequired ?? false,
     minOrderQty: product.minOrderQty ?? "",
+    batchSizeMinimum: product.batchSizeMinimum ?? "",
+    batchSizeUnit: product.batchSizeUnit ?? "",
+    packSizeUnits: product.packSizeUnits ?? "",
   });
 
   return (
@@ -568,7 +571,7 @@ function EditProductModal({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">
-                Min order qty
+                Min order qty (packs)
               </label>
               <input
                 type="number"
@@ -589,6 +592,58 @@ function EditProductModal({
                 />
                 Round PO qty up to nearest case
               </label>
+            </div>
+          </div>
+
+          <div className="pt-3 border-t border-slate-100">
+            <div className="text-xs uppercase tracking-wide text-slate-500 mb-2">
+              Manufacturer batch
+            </div>
+            <p className="text-xs text-slate-500 mb-3">
+              The smallest run the manufacturer will produce. Used to convert
+              per-batch BOM ratios into per-pack at PO drafting time.
+            </p>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Batch min</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={form.batchSizeMinimum}
+                  onChange={(e) =>
+                    setForm({ ...form, batchSizeMinimum: e.target.value ? Number(e.target.value) : "" })
+                  }
+                  placeholder="e.g. 50000"
+                  className="w-full px-3 py-2 border border-border rounded-lg text-sm font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Batch unit</label>
+                <select
+                  value={form.batchSizeUnit}
+                  onChange={(e) => setForm({ ...form, batchSizeUnit: e.target.value })}
+                  className="w-full px-3 py-2 border border-border rounded-lg text-sm"
+                >
+                  <option value="">—</option>
+                  <option value="tablets">tablets</option>
+                  <option value="units">units</option>
+                  <option value="kg">kg</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Pack size (units)
+                </label>
+                <input
+                  type="number"
+                  value={form.packSizeUnits}
+                  onChange={(e) =>
+                    setForm({ ...form, packSizeUnits: e.target.value ? Number(e.target.value) : "" })
+                  }
+                  placeholder="tablets/units per pack"
+                  className="w-full px-3 py-2 border border-border rounded-lg text-sm font-mono"
+                />
+              </div>
             </div>
           </div>
 
@@ -616,6 +671,9 @@ function EditProductModal({
                 notes: form.notes || null,
                 caseRoundingRequired: form.caseRoundingRequired,
                 minOrderQty: form.minOrderQty === "" ? null : Number(form.minOrderQty),
+                batchSizeMinimum: form.batchSizeMinimum === "" ? null : Number(form.batchSizeMinimum),
+                batchSizeUnit: form.batchSizeUnit || null,
+                packSizeUnits: form.packSizeUnits === "" ? null : Number(form.packSizeUnits),
               })
             }
             disabled={saving}
@@ -824,6 +882,7 @@ interface BomCell {
   supplyId: number;
   skuCode: string;
   quantityPerUnit: number;
+  quantityBasis: "per_unit" | "per_batch";
   notes: string | null;
 }
 
@@ -938,7 +997,16 @@ function BomMatrixTab() {
                           cell ? "text-slate-900 font-medium hover:bg-blue-50" : "text-slate-300 hover:bg-slate-100"
                         }`}
                       >
-                        {cell ? cell.quantityPerUnit : "—"}
+                        {cell ? (
+                          <>
+                            {cell.quantityPerUnit}
+                            {cell.quantityBasis === "per_batch" && (
+                              <span className="ml-1 text-xs text-amber-600 font-normal">/batch</span>
+                            )}
+                          </>
+                        ) : (
+                          "—"
+                        )}
                       </td>
                     );
                   })}

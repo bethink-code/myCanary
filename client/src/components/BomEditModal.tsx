@@ -16,6 +16,7 @@ interface ExistingMapping {
   supplyId: number;
   skuCode: string;
   quantityPerUnit: number;
+  quantityBasis?: "per_unit" | "per_batch";
   notes: string | null;
 }
 
@@ -26,7 +27,13 @@ interface Props {
   products: ProductOption[];
   saving: boolean;
   onClose: () => void;
-  onSave: (data: { supplyId: number; skuCode: string; quantityPerUnit: number; notes: string | null }) => void;
+  onSave: (data: {
+    supplyId: number;
+    skuCode: string;
+    quantityPerUnit: number;
+    quantityBasis: "per_unit" | "per_batch";
+    notes: string | null;
+  }) => void;
   onDelete?: () => void;
 }
 
@@ -39,6 +46,9 @@ export default function BomEditModal({ mapping, supplies, products, saving, onCl
     mapping && "quantityPerUnit" in mapping && mapping.quantityPerUnit != null
       ? String(mapping.quantityPerUnit)
       : "",
+  );
+  const [basis, setBasis] = useState<"per_unit" | "per_batch">(
+    (mapping && "quantityBasis" in mapping && mapping.quantityBasis) || "per_unit",
   );
   const [notes, setNotes] = useState<string>(
     mapping && "notes" in mapping && mapping.notes ? mapping.notes : "",
@@ -90,15 +100,47 @@ export default function BomEditModal({ mapping, supplies, products, saving, onCl
           </div>
 
           <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Basis</label>
+            <div className="flex gap-1 p-1 bg-slate-100 rounded-lg">
+              <button
+                type="button"
+                onClick={() => setBasis("per_unit")}
+                className={`flex-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                  basis === "per_unit" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
+                }`}
+              >
+                Per finished pack
+              </button>
+              <button
+                type="button"
+                onClick={() => setBasis("per_batch")}
+                className={`flex-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                  basis === "per_batch" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
+                }`}
+              >
+                Per manufacturer batch
+              </button>
+            </div>
+            <p className="text-xs text-slate-500 mt-1">
+              {basis === "per_unit"
+                ? "Quantity needed for one finished pack of this SKU."
+                : "Quantity needed for one manufacturer batch — converted to per-pack at draft time using the product's batch size."}
+            </p>
+          </div>
+
+          <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">
-              Quantity per unit{supply?.unitOfMeasure ? ` (${supply.unitOfMeasure} per finished unit)` : ""}
+              Quantity{supply?.unitOfMeasure ? ` (${supply.unitOfMeasure})` : ""}
+              <span className="text-slate-400 ml-1">
+                {basis === "per_unit" ? "per pack" : "per batch"}
+              </span>
             </label>
             <input
               type="number"
               step="0.0001"
               value={qty}
               onChange={(e) => setQty(e.target.value)}
-              placeholder="e.g. 0.0125"
+              placeholder={basis === "per_unit" ? "e.g. 0.0125" : "e.g. 20.005"}
               className="w-full px-3 py-2 border border-border rounded-lg text-sm font-mono"
             />
           </div>
@@ -123,6 +165,7 @@ export default function BomEditModal({ mapping, supplies, products, saving, onCl
                   supplyId: Number(supplyId),
                   skuCode: skuCode.trim(),
                   quantityPerUnit: Number(qty),
+                  quantityBasis: basis,
                   notes: notes.trim() || null,
                 })
               }

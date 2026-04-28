@@ -9,7 +9,61 @@
 export interface BomLine {
   supplyId: number;
   skuCode: string;
-  quantityPerUnit: number; // BOM ratio
+  quantityPerUnit: number; // already-converted per-pack ratio
+}
+
+export type QuantityBasis = "per_unit" | "per_batch";
+export type BatchSizeUnit = "tablets" | "units" | "kg";
+
+export interface ProductBatchInfo {
+  batchSizeMinimum: number | null;
+  batchSizeUnit: BatchSizeUnit | null;
+  packSizeUnits: number | null; // tablets/units per pack (chews=30, sprays=1)
+  packSizeG: number | null; // grams per pack (formulas/mixes)
+}
+
+/**
+ * Number of finished packs in one manufacturer batch.
+ * Returns null when the conversion can't be done (missing batch size or
+ * mismatched units).
+ *
+ *   batch in tablets/units → packs = batchMin / packSizeUnits
+ *   batch in kg            → packs = batchMin * 1000 / packSizeG
+ */
+export function packsPerBatch(p: ProductBatchInfo): number | null {
+  if (p.batchSizeMinimum == null || p.batchSizeUnit == null) return null;
+  if (p.batchSizeUnit === "kg") {
+    if (!p.packSizeG || p.packSizeG <= 0) return null;
+    return (p.batchSizeMinimum * 1000) / p.packSizeG;
+  }
+  // tablets or units
+  if (!p.packSizeUnits || p.packSizeUnits <= 0) return null;
+  return p.batchSizeMinimum / p.packSizeUnits;
+}
+
+/**
+ * Convert a per-batch BOM quantity into a per-pack quantity for a given
+ * product. Returns null when conversion isn't possible (e.g. no batch
+ * size set on the product); callers should treat that as "skip this BOM
+ * row from PO drafting and warn Beryl".
+ */
+export function perPackFromBatch(perBatchQty: number, p: ProductBatchInfo): number | null {
+  const ppb = packsPerBatch(p);
+  if (ppb == null || ppb <= 0) return null;
+  return perBatchQty / ppb;
+}
+
+/**
+ * Resolve a stored BOM row to its per-pack quantity, applying the basis
+ * conversion if needed. Returns null if the row is per_batch but the
+ * product is missing batch info — caller decides how to handle.
+ */
+export function resolveBomPerPack(
+  row: { quantityPerUnit: number; quantityBasis: QuantityBasis },
+  product: ProductBatchInfo,
+): number | null {
+  if (row.quantityBasis === "per_unit") return row.quantityPerUnit;
+  return perPackFromBatch(row.quantityPerUnit, product);
 }
 
 export interface ProductionPlanLine {
