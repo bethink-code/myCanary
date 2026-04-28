@@ -484,6 +484,8 @@ function EditProductModal({
 }) {
   const [form, setForm] = useState({
     productName: product.productName,
+    brand: product.brand ?? "",
+    range: product.range ?? "",
     manufacturerId: product.manufacturerId ?? "",
     reorderPointOverride: product.reorderPointOverride ?? "",
     xeroItemCode: product.xeroItemCode ?? "",
@@ -513,6 +515,37 @@ function EditProductModal({
               onChange={(e) => setForm({ ...form, productName: e.target.value })}
               className="w-full px-3 py-2 border border-border rounded-lg text-sm"
             />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">
+                Brand <span className="text-slate-400 font-normal">(owner)</span>
+              </label>
+              <select
+                value={form.brand}
+                onChange={(e) => setForm({ ...form, brand: e.target.value })}
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm"
+              >
+                <option value="THH">THH (The Herbal Horse)</option>
+                <option value="NP">NP (Nutriphase)</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">
+                Range <span className="text-slate-400 font-normal">(product line)</span>
+              </label>
+              <select
+                value={form.range}
+                onChange={(e) => setForm({ ...form, range: e.target.value })}
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm"
+              >
+                <option value="">—</option>
+                <option value="HH">HH (Herbal Horse)</option>
+                <option value="HP">HP (Herbal Pet)</option>
+                <option value="NP">NP (Nutriphase)</option>
+              </select>
+            </div>
           </div>
 
           <div>
@@ -665,6 +698,8 @@ function EditProductModal({
             onClick={() =>
               onSave({
                 productName: form.productName,
+                brand: form.brand,
+                range: form.range || null,
                 manufacturerId: form.manufacturerId || null,
                 reorderPointOverride: form.reorderPointOverride || null,
                 xeroItemCode: form.xeroItemCode || null,

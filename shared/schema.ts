@@ -99,7 +99,11 @@ export const products = pgTable("products", {
   clientId: integer("client_id").references(() => clients.id).notNull(),
   skuCode: varchar("sku_code", { length: 50 }).notNull(),
   productName: varchar("product_name", { length: 255 }).notNull(),
+  // brand = who owns the product (THH or NP). range = product family line
+  // (HH = Herbal Horse, HP = Herbal Pet, NP = Nutriphase). Decoupling these
+  // lets THH-owned products live in either the HH or HP range.
   brand: varchar("brand", { length: 10 }).notNull(),
+  range: varchar("range", { length: 10 }),
   category: varchar("category", { length: 50 }).notNull(),
   packSizeG: integer("pack_size_g"),
   unitsPerCase: integer("units_per_case"),

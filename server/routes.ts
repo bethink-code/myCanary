@@ -274,6 +274,7 @@ export function registerRoutes(router: Router) {
   const updateProductSchema = z.object({
     productName: z.string().min(1).max(255).optional(),
     brand: z.string().max(10).optional(),
+    range: z.string().max(10).nullable().optional(),
     category: z.string().max(50).optional(),
     packSizeG: z.number().int().positive().nullable().optional(),
     unitsPerCase: z.number().int().positive().nullable().optional(),
@@ -341,6 +342,7 @@ export function registerRoutes(router: Router) {
     skuCode: z.string().min(1).max(50),
     productName: z.string().min(1).max(255),
     brand: z.string().min(1).max(10),
+    range: z.string().max(10).nullable().optional(),
     category: z.string().min(1).max(50),
     packSizeG: z.number().int().positive().nullable().optional(),
     unitsPerCase: z.number().int().positive().nullable().optional(),
@@ -383,6 +385,7 @@ export function registerRoutes(router: Router) {
           skuCode: parsed.data.skuCode,
           productName: parsed.data.productName,
           brand: parsed.data.brand,
+          range: parsed.data.range ?? null,
           category: parsed.data.category,
           packSizeG: parsed.data.packSizeG ?? null,
           unitsPerCase: parsed.data.unitsPerCase ?? null,

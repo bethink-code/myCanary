@@ -66,9 +66,24 @@ Fill in:
 
 ---
 
-### Step 2 — Products: batch info + MOQ (45-60 min)
+### Step 2 — Products: brand/range spot-check + batch info + MOQ (45-60 min)
 
 **Settings → Products & SKUs → Edit each (~46 products)**
+
+#### 2a. Brand + Range spot-check (already pre-populated)
+
+The product modal now has two new fields:
+
+- **Brand** = who owns the product. `THH` (The Herbal Horse) or `NP` (Nutriphase).
+- **Range** = product line. `HH` (Herbal Horse range — your mixes), `HP` (Herbal Pet range — chews/formulas/sprays/gravy), or `NP` (Nutriphase).
+
+Both have been pre-populated from the existing data. **Spot-check** as you go through each product — flip if anything's wrong. Examples:
+
+- `ACC30` Allergy Care Chews — brand=THH, range=HP ✓
+- `ITM2000` Itch mix — brand=THH, range=HH ✓
+- `NPACC30` NP Allergy Care Chews — brand=NP, range=NP ✓
+
+#### 2b. Manufacturer batch
 
 For each product, look for the **Manufacturer batch** section. Fill in based on type:
 
@@ -85,6 +100,8 @@ For each product, look for the **Manufacturer batch** section. Fill in based on 
 | Collagen Gravy | 20 | kg | *leave blank* |
 
 **Why this matters:** without batch info, PO automation can't convert "20 kg of Kelp per batch" into "0.012 kg per pack" — it'll skip those raw-material lines and warn you.
+
+#### 2c. MOQ rules
 
 Also set if applicable:
 
