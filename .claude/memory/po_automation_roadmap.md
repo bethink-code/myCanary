@@ -1,9 +1,9 @@
-# PO automation roadmap (deferred until foundations land)
+# PO automation roadmap
 
-Three pieces of work explicitly out of scope for the supplies-foundations
-work but confirmed by Garth in the 2026-04-28 design session. Plan their
-implementation in a focused later session once the foundation data layer
-(supplies location, BOM matrix, structured MOQ rules) is real.
+Three pieces of work confirmed by Garth in the 2026-04-28 design session.
+Foundations (supplies location ledger, BOM matrix, structured MOQ rules)
+all shipped to prod 2026-04-28. Next: thorough prod testing of the
+foundations, then this work.
 
 ## 1. PO drafting from MOQ + BOM + reorder calc
 
@@ -48,7 +48,8 @@ whether to order more. Automate that prompt:
 
 ## How to apply
 
-When the user comes back to PO automation: re-read this note, confirm
-foundations are in place (locations, BOM matrix populated, MOQ rules
-captured), then plan the slicing across these three pieces. Likely
-order: drafting first, Xero sync second, after-send check third.
+Foundations are shipped — confirm Beryl has populated the BOM Matrix
+(Settings → BOM Matrix) and the structured MOQ fields on
+products/manufacturers/supplies + the bundling rules (Settings → MOQ
+Rules) before drafting can produce useful output. Likely slicing order:
+drafting first, Xero sync second, after-send check third.
