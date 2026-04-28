@@ -12,6 +12,7 @@ import { registerOpeningBalanceRoutes } from "./openingBalanceImport";
 import { registerSupplyRoutes } from "./supplies";
 import { registerMovementRoutes } from "./movements/routes";
 import { registerSalesSummaryRoutes } from "./salesSummary";
+import { registerMoqRuleRoutes } from "./moqRules";
 import { clientContext } from "./clientContext";
 
 const app = express();
@@ -125,6 +126,7 @@ registerOpeningBalanceRoutes(router);
 registerSupplyRoutes(router);
 registerMovementRoutes(router);
 registerSalesSummaryRoutes(router);
+registerMoqRuleRoutes(router);
 app.use(router);
 
 // ─── Error Handler ─────────────────────────────────────

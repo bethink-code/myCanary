@@ -285,6 +285,8 @@ export function registerRoutes(router: Router) {
     reorderPointOverride: z.number().int().positive().nullable().optional(),
     weightKg: z.number().int().positive().nullable().optional(),
     notes: z.string().nullable().optional(),
+    caseRoundingRequired: z.boolean().optional(),
+    minOrderQty: z.number().int().positive().nullable().optional(),
   });
 
   router.patch("/api/products/:skuCode", isAuthenticated, async (req, res) => {
@@ -407,7 +409,12 @@ export function registerRoutes(router: Router) {
     try {
       const clientId = getClientId(req);
       const id = Number(req.params.id);
-      const { name, email, contactPerson, phone, standardLeadTimeDays, maxLeadTimeDays, poFormatNotes, moqNotes } = req.body;
+      const {
+        name, email, contactPerson, phone,
+        standardLeadTimeDays, maxLeadTimeDays,
+        poFormatNotes, moqNotes,
+        minOrderValueZar, orderFrequencyCapDays,
+      } = req.body;
 
       const [updated] = await db
         .update(manufacturers)
@@ -420,6 +427,8 @@ export function registerRoutes(router: Router) {
           ...(maxLeadTimeDays !== undefined && { maxLeadTimeDays: Number(maxLeadTimeDays) }),
           ...(poFormatNotes !== undefined && { poFormatNotes }),
           ...(moqNotes !== undefined && { moqNotes }),
+          ...(minOrderValueZar !== undefined && { minOrderValueZar: minOrderValueZar === null ? null : Number(minOrderValueZar) }),
+          ...(orderFrequencyCapDays !== undefined && { orderFrequencyCapDays: orderFrequencyCapDays === null ? null : Number(orderFrequencyCapDays) }),
         })
         .where(and(eq(manufacturers.clientId, clientId), eq(manufacturers.id, id)))
         .returning();

@@ -8,6 +8,7 @@ import {
   varchar,
   date,
   json,
+  numeric,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 
@@ -87,7 +88,9 @@ export const manufacturers = pgTable("manufacturers", {
   standardLeadTimeDays: integer("standard_lead_time_days").default(40).notNull(),
   maxLeadTimeDays: integer("max_lead_time_days").default(60).notNull(),
   poFormatNotes: text("po_format_notes"),
-  moqNotes: text("moq_notes"),
+  moqNotes: text("moq_notes"), // free-text colour; structured rules below
+  minOrderValueZar: integer("min_order_value_zar"), // null = no minimum
+  orderFrequencyCapDays: integer("order_frequency_cap_days"), // null = no cap; e.g. 60 = max 1 PO per 60 days
 });
 
 // ─── Client-Scoped: Products ────────────────────────────────
@@ -108,6 +111,8 @@ export const products = pgTable("products", {
   reorderPointOverride: integer("reorder_point_override"),
   weightKg: integer("weight_kg"),
   notes: text("notes"),
+  caseRoundingRequired: boolean("case_rounding_required").default(false).notNull(), // when true, PO qty rounds up to nearest unitsPerCase
+  minOrderQty: integer("min_order_qty"), // null = no per-product MOQ
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
   uniqueIndex("products_client_sku_idx").on(table.clientId, table.skuCode),
@@ -278,7 +283,11 @@ export const supplies = pgTable("supplies", {
   supplier: varchar("supplier", { length: 255 }),
   supplierContact: varchar("supplier_contact", { length: 255 }),
   priceDescription: varchar("price_description", { length: 255 }), // text: "R110 for 10kg", "USD 0.66"
-  moq: varchar("moq", { length: 100 }), // "10kg", "1000", "10000"
+  moq: varchar("moq", { length: 100 }), // free-text colour: "10kg", "1000". Structured below.
+  moqStructured: integer("moq_structured"), // numeric MOQ in unitOfMeasure
+  moqUnit: varchar("moq_unit", { length: 50 }), // optional override; defaults to unitOfMeasure for display
+  caseRoundingRequired: boolean("case_rounding_required").default(false).notNull(),
+  unitsPerCase: integer("units_per_case"),
   leadTime: varchar("lead_time", { length: 100 }), // "3 months", "2 weeks", "8 weeks"
   reorderPoint: integer("reorder_point"),
   isActive: boolean("is_active").default(true).notNull(),
@@ -309,6 +318,21 @@ export const supplyProductMappings = pgTable("supply_product_mappings", {
   skuCode: varchar("sku_code", { length: 50 }).notNull(),
   quantityPerUnit: integer("quantity_per_unit").default(1).notNull(), // how many of this supply per unit of finished product
   notes: text("notes"),
+});
+
+// ─── Client-Scoped: MOQ Bundling Rules ──────────────────────
+// "When ordering primary SKU, always include bundled SKU at ratio R".
+// Used by the PO drafting calc to apply structured bundling alongside
+// per-product MOQ and per-manufacturer min-order rules.
+export const moqBundlingRules = pgTable("moq_bundling_rules", {
+  id: serial("id").primaryKey(),
+  clientId: integer("client_id").references(() => clients.id).notNull(),
+  manufacturerId: integer("manufacturer_id").references(() => manufacturers.id), // null = applies regardless of manufacturer
+  primarySkuCode: varchar("primary_sku_code", { length: 50 }).notNull(),
+  bundledSkuCode: varchar("bundled_sku_code", { length: 50 }).notNull(),
+  ratio: numeric("ratio", { precision: 8, scale: 4 }).default("1").notNull(), // e.g. 1.0000 = always order 1:1; 0.5 = bundle is half the primary qty
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
 // ─── Client-Scoped: PnP Product Mapping ─────────────────────

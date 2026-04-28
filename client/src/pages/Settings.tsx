@@ -15,6 +15,7 @@ export default function Settings() {
   const tabs = [
     { id: "products", label: "Products & SKUs" },
     { id: "manufacturers", label: "Manufacturers" },
+    { id: "moq-rules", label: "MOQ Rules" },
     { id: "system", label: "System Settings" },
   ];
 
@@ -55,6 +56,7 @@ export default function Settings() {
 
       {activeTab === "products" && <ProductsTab />}
       {activeTab === "manufacturers" && <ManufacturersTab />}
+      {activeTab === "moq-rules" && <MoqRulesTab />}
       {activeTab === "system" && <SystemSettingsTab />}
     </div>
   );
@@ -483,6 +485,8 @@ function EditProductModal({
     reorderPointOverride: product.reorderPointOverride ?? "",
     xeroItemCode: product.xeroItemCode ?? "",
     notes: product.notes ?? "",
+    caseRoundingRequired: product.caseRoundingRequired ?? false,
+    minOrderQty: product.minOrderQty ?? "",
   });
 
   return (
@@ -558,6 +562,33 @@ function EditProductModal({
             />
           </div>
 
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">
+                Min order qty
+              </label>
+              <input
+                type="number"
+                value={form.minOrderQty}
+                onChange={(e) =>
+                  setForm({ ...form, minOrderQty: e.target.value ? Number(e.target.value) : "" })
+                }
+                placeholder="No per-product MOQ"
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm"
+              />
+            </div>
+            <div className="flex items-end pb-2">
+              <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.caseRoundingRequired}
+                  onChange={(e) => setForm({ ...form, caseRoundingRequired: e.target.checked })}
+                />
+                Round PO qty up to nearest case
+              </label>
+            </div>
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">
               Notes
@@ -580,6 +611,8 @@ function EditProductModal({
                 reorderPointOverride: form.reorderPointOverride || null,
                 xeroItemCode: form.xeroItemCode || null,
                 notes: form.notes || null,
+                caseRoundingRequired: form.caseRoundingRequired,
+                minOrderQty: form.minOrderQty === "" ? null : Number(form.minOrderQty),
               })
             }
             disabled={saving}
@@ -677,6 +710,8 @@ function EditManufacturerModal({
     maxLeadTimeDays: manufacturer.maxLeadTimeDays ?? 60,
     poFormatNotes: manufacturer.poFormatNotes ?? "",
     moqNotes: manufacturer.moqNotes ?? "",
+    minOrderValueZar: manufacturer.minOrderValueZar ?? "",
+    orderFrequencyCapDays: manufacturer.orderFrequencyCapDays ?? "",
   });
 
   return (
@@ -724,21 +759,305 @@ function EditManufacturerModal({
               rows={2} placeholder="Any special instructions for purchase orders"
               className="w-full px-3 py-2 border border-border rounded-lg text-sm" />
           </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Min order value (ZAR)</label>
+              <input
+                type="number"
+                value={form.minOrderValueZar}
+                onChange={(e) => setForm({ ...form, minOrderValueZar: e.target.value ? Number(e.target.value) : "" })}
+                placeholder="No minimum"
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Order frequency cap (days)</label>
+              <input
+                type="number"
+                value={form.orderFrequencyCapDays}
+                onChange={(e) => setForm({ ...form, orderFrequencyCapDays: e.target.value ? Number(e.target.value) : "" })}
+                placeholder="No cap"
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm"
+              />
+            </div>
+          </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">MOQ Notes</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">MOQ Notes (free text — colour for the rules above)</label>
             <textarea value={form.moqNotes} onChange={(e) => setForm({ ...form, moqNotes: e.target.value })}
-              rows={2} placeholder="Minimum order quantities or batch requirements"
+              rows={2} placeholder="Background notes about MOQs"
               className="w-full px-3 py-2 border border-border rounded-lg text-sm" />
           </div>
         </div>
 
         <div className="flex gap-3 pt-2">
-          <button onClick={() => onSave(form)} disabled={saving}
+          <button
+            onClick={() =>
+              onSave({
+                ...form,
+                minOrderValueZar: form.minOrderValueZar === "" ? null : Number(form.minOrderValueZar),
+                orderFrequencyCapDays: form.orderFrequencyCapDays === "" ? null : Number(form.orderFrequencyCapDays),
+              })
+            }
+            disabled={saving}
             className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 disabled:opacity-50">
             {saving ? "Saving..." : "Save Changes"}
           </button>
           <button onClick={onClose} disabled={saving}
             className="px-4 py-2 border border-border text-slate-700 rounded-lg text-sm hover:bg-slate-50 disabled:opacity-50">
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface BundlingRule {
+  id: number;
+  manufacturerId: number | null;
+  primarySkuCode: string;
+  bundledSkuCode: string;
+  ratio: number;
+  notes: string | null;
+}
+
+function MoqRulesTab() {
+  const qc = useQueryClient();
+  const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<BundlingRule | null>(null);
+
+  const { data: rules = [], isLoading } = useQuery<BundlingRule[]>({
+    queryKey: ["moq-bundling-rules"],
+    queryFn: () => apiRequest("/api/moq-rules/bundling"),
+  });
+
+  const { data: manufacturers = [] } = useQuery<any[]>({
+    queryKey: ["manufacturers"],
+    queryFn: () => apiRequest("/api/manufacturers"),
+  });
+
+  const upsertMutation = useMutation({
+    mutationFn: (payload: { id?: number; data: Partial<BundlingRule> }) =>
+      payload.id
+        ? apiRequest(`/api/moq-rules/bundling/${payload.id}`, {
+            method: "PATCH",
+            body: JSON.stringify(payload.data),
+          })
+        : apiRequest("/api/moq-rules/bundling", {
+            method: "POST",
+            body: JSON.stringify(payload.data),
+          }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["moq-bundling-rules"] });
+      setAdding(false);
+      setEditing(null);
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => apiRequest(`/api/moq-rules/bundling/${id}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["moq-bundling-rules"] }),
+  });
+
+  const mfrName = (id: number | null) =>
+    id == null ? "Any manufacturer" : manufacturers.find((m: any) => m.id === id)?.name ?? `#${id}`;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-slate-500">
+          Bundling rules: when a primary SKU is on a draft PO, ensure the bundled SKU is also on
+          the PO at the given ratio. Used by future PO drafting.
+        </p>
+        <button
+          onClick={() => setAdding(true)}
+          className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90"
+        >
+          New rule
+        </button>
+      </div>
+
+      {isLoading ? (
+        <div className="flex justify-center py-8">
+          <div className="animate-spin w-6 h-6 border-2 border-primary border-t-transparent rounded-full" />
+        </div>
+      ) : rules.length === 0 ? (
+        <div className="bg-white rounded-xl border border-border p-12 text-center">
+          <p className="text-slate-400 text-sm">No bundling rules yet.</p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl border border-border overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50">
+              <tr>
+                <th className="text-left px-4 py-3 font-medium text-slate-600">Manufacturer</th>
+                <th className="text-left px-4 py-3 font-medium text-slate-600">Primary SKU</th>
+                <th className="text-left px-4 py-3 font-medium text-slate-600">Bundled SKU</th>
+                <th className="text-right px-4 py-3 font-medium text-slate-600">Ratio</th>
+                <th className="text-left px-4 py-3 font-medium text-slate-600">Notes</th>
+                <th className="px-4 py-3"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {rules.map((r) => (
+                <tr key={r.id} className="hover:bg-slate-50">
+                  <td className="px-4 py-3 text-slate-600">{mfrName(r.manufacturerId)}</td>
+                  <td className="px-4 py-3 font-mono">{r.primarySkuCode}</td>
+                  <td className="px-4 py-3 font-mono">{r.bundledSkuCode}</td>
+                  <td className="px-4 py-3 text-right font-mono">{r.ratio}</td>
+                  <td className="px-4 py-3 text-slate-500 text-xs">{r.notes ?? "—"}</td>
+                  <td className="px-4 py-3 text-right space-x-2">
+                    <button onClick={() => setEditing(r)} className="text-xs text-primary hover:underline">
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (confirm(`Delete rule: ${r.primarySkuCode} → ${r.bundledSkuCode}?`)) {
+                          deleteMutation.mutate(r.id);
+                        }
+                      }}
+                      className="text-xs text-red-600 hover:underline"
+                    >
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {(adding || editing) && (
+        <BundlingRuleModal
+          rule={editing}
+          manufacturers={manufacturers}
+          saving={upsertMutation.isPending}
+          onClose={() => {
+            setAdding(false);
+            setEditing(null);
+          }}
+          onSave={(data) => upsertMutation.mutate({ id: editing?.id, data })}
+        />
+      )}
+    </div>
+  );
+}
+
+function BundlingRuleModal({
+  rule,
+  manufacturers,
+  saving,
+  onSave,
+  onClose,
+}: {
+  rule: BundlingRule | null;
+  manufacturers: any[];
+  saving: boolean;
+  onSave: (data: Partial<BundlingRule>) => void;
+  onClose: () => void;
+}) {
+  const [form, setForm] = useState({
+    manufacturerId: rule?.manufacturerId ?? "",
+    primarySkuCode: rule?.primarySkuCode ?? "",
+    bundledSkuCode: rule?.bundledSkuCode ?? "",
+    ratio: rule?.ratio ?? 1,
+    notes: rule?.notes ?? "",
+  });
+
+  const valid =
+    form.primarySkuCode.trim() &&
+    form.bundledSkuCode.trim() &&
+    form.primarySkuCode !== form.bundledSkuCode &&
+    Number(form.ratio) > 0;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4 space-y-4">
+        <h2 className="text-lg font-bold text-slate-900">
+          {rule ? "Edit bundling rule" : "New bundling rule"}
+        </h2>
+
+        <div className="space-y-3">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Manufacturer</label>
+            <select
+              value={form.manufacturerId}
+              onChange={(e) =>
+                setForm({ ...form, manufacturerId: e.target.value ? Number(e.target.value) : "" })
+              }
+              className="w-full px-3 py-2 border border-border rounded-lg text-sm"
+            >
+              <option value="">Any manufacturer</option>
+              {manufacturers.map((m: any) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Primary SKU</label>
+              <input
+                type="text"
+                value={form.primarySkuCode}
+                onChange={(e) => setForm({ ...form, primarySkuCode: e.target.value.toUpperCase() })}
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm font-mono"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Bundled SKU</label>
+              <input
+                type="text"
+                value={form.bundledSkuCode}
+                onChange={(e) => setForm({ ...form, bundledSkuCode: e.target.value.toUpperCase() })}
+                className="w-full px-3 py-2 border border-border rounded-lg text-sm font-mono"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Ratio (bundled per primary)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={form.ratio}
+              onChange={(e) => setForm({ ...form, ratio: Number(e.target.value) })}
+              className="w-full px-3 py-2 border border-border rounded-lg text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Notes</label>
+            <textarea
+              value={form.notes}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              rows={2}
+              className="w-full px-3 py-2 border border-border rounded-lg text-sm"
+            />
+          </div>
+        </div>
+
+        <div className="flex gap-3 pt-2">
+          <button
+            disabled={!valid || saving}
+            onClick={() =>
+              onSave({
+                manufacturerId: form.manufacturerId === "" ? null : Number(form.manufacturerId),
+                primarySkuCode: form.primarySkuCode,
+                bundledSkuCode: form.bundledSkuCode,
+                ratio: Number(form.ratio),
+                notes: form.notes || null,
+              })
+            }
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium disabled:opacity-50"
+          >
+            {saving ? "Saving..." : rule ? "Save changes" : "Create rule"}
+          </button>
+          <button
+            onClick={onClose}
+            disabled={saving}
+            className="px-4 py-2 border border-border text-slate-700 rounded-lg text-sm"
+          >
             Cancel
           </button>
         </div>

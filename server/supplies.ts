@@ -364,7 +364,11 @@ export function registerSupplyRoutes(router: Router) {
         return res.status(404).json({ message: "Supply not found" });
       }
 
-      const { name, category, subcategory, unitOfMeasure, supplier, supplierContact, priceDescription, moq, leadTime, reorderPoint, isActive, notes } = req.body;
+      const {
+        name, category, subcategory, unitOfMeasure, supplier, supplierContact,
+        priceDescription, moq, leadTime, reorderPoint, isActive, notes,
+        moqStructured, moqUnit, caseRoundingRequired, unitsPerCase,
+      } = req.body;
 
       const updates: Record<string, unknown> = {};
       if (name !== undefined) updates.name = name;
@@ -379,6 +383,10 @@ export function registerSupplyRoutes(router: Router) {
       if (reorderPoint !== undefined) updates.reorderPoint = reorderPoint != null ? Number(reorderPoint) : null;
       if (isActive !== undefined) updates.isActive = isActive;
       if (notes !== undefined) updates.notes = notes || null;
+      if (moqStructured !== undefined) updates.moqStructured = moqStructured != null ? Number(moqStructured) : null;
+      if (moqUnit !== undefined) updates.moqUnit = moqUnit || null;
+      if (caseRoundingRequired !== undefined) updates.caseRoundingRequired = !!caseRoundingRequired;
+      if (unitsPerCase !== undefined) updates.unitsPerCase = unitsPerCase != null ? Number(unitsPerCase) : null;
 
       const [updated] = await db
         .update(supplies)
