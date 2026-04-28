@@ -1,109 +1,152 @@
-import { useAuth } from "../hooks/useAuth";
-import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "../lib/queryClient";
+import { useAuth } from "../hooks/useAuth";
+import { formatDateShort } from "../lib/formatters";
+import LoadingOverlay from "../components/LoadingOverlay";
+import RhythmPrompts, { type RhythmData } from "../components/RhythmPrompts";
+import StatusCards, { type StatusCardData } from "./stock/StatusCards";
+import { calcStockHealthBuckets } from "../../../shared/calculations/stock";
+import { calcPoBuckets, type PoSummary } from "../../../shared/calculations/po";
 
-function StockHealthWidget() {
-  const { data: stockItems = [], isLoading } = useQuery<any[]>({
-    queryKey: ["stock-summary"],
-    queryFn: () => apiRequest("/api/stock/summary"),
-  });
+interface SnapshotProduct {
+  currentStock: number;
+  reorderPoint: number | null;
+}
 
-  if (isLoading) {
-    return (
-      <div className="bg-white rounded-xl border border-border p-6">
-        <h2 className="font-semibold text-slate-900 mb-4">Stock Health</h2>
-        <div className="flex justify-center py-4">
-          <div className="animate-spin w-6 h-6 border-4 border-primary border-t-transparent rounded-full" />
-        </div>
-      </div>
-    );
-  }
+interface DataFreshness {
+  openingBalanceDate: string | null;
+  lastSalesImportTo: string | null;
+  lastTransactionAt: string | null;
+}
 
-  const reorderCount = stockItems.filter((i) => {
-    const stock = i.primaryStockLocation === "88" ? i.eightEightStock : i.thhStock;
-    return i.reorderPoint && stock <= i.reorderPoint;
-  }).length;
+interface SnapshotOverview {
+  items: SnapshotProduct[];
+  dataFreshness: DataFreshness;
+}
 
-  const approachingCount = stockItems.filter((i) => {
-    const stock = i.primaryStockLocation === "88" ? i.eightEightStock : i.thhStock;
-    return i.reorderPoint && stock > i.reorderPoint && stock <= i.reorderPoint * 1.25;
-  }).length;
+interface SalesSummary {
+  channelStatuses: {
+    xero: { lastImportAt: string | null };
+    pnp: { lastDispatchAt: string | null; dispatchesThisMonth: number };
+    customerOrders: { pendingCount: number };
+  };
+}
 
-  const okCount = stockItems.length - reorderCount - approachingCount;
-
-  return (
-    <div className="bg-white rounded-xl border border-border p-6">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="font-semibold text-slate-900">Stock Health</h2>
-        <Link to="/stock" className="text-sm text-primary hover:underline">
-          View all
-        </Link>
-      </div>
-      <div className="grid grid-cols-3 gap-4">
-        <div className="text-center p-3 bg-green-50 rounded-lg">
-          <p className="text-2xl font-bold text-green-700">{okCount}</p>
-          <p className="text-xs text-green-600 mt-1">OK</p>
-        </div>
-        <div className="text-center p-3 bg-amber-50 rounded-lg">
-          <p className="text-2xl font-bold text-amber-700">{approachingCount}</p>
-          <p className="text-xs text-amber-600 mt-1">Approaching</p>
-        </div>
-        <div className="text-center p-3 bg-red-50 rounded-lg">
-          <p className="text-2xl font-bold text-red-700">{reorderCount}</p>
-          <p className="text-xs text-red-600 mt-1">Reorder</p>
-        </div>
-      </div>
-      <p className="text-xs text-slate-400 mt-3">{stockItems.length} total products</p>
-    </div>
-  );
+function firstName(email?: string | null, given?: string | null): string {
+  if (given) return given;
+  if (!email) return "there";
+  return email.split("@")[0];
 }
 
 export default function Dashboard() {
   const { user } = useAuth();
 
+  const { data: overview, isLoading: overviewLoading } = useQuery<SnapshotOverview>({
+    queryKey: ["snapshot-overview"],
+    queryFn: () => apiRequest("/api/snapshot/overview"),
+  });
+
+  const { data: orders = [] } = useQuery<PoSummary[]>({
+    queryKey: ["purchase-orders"],
+    queryFn: () => apiRequest("/api/purchase-orders"),
+  });
+
+  const { data: rhythm } = useQuery<RhythmData>({
+    queryKey: ["snapshot-rhythm"],
+    queryFn: () => apiRequest("/api/snapshot/rhythm"),
+  });
+
+  const { data: sales } = useQuery<SalesSummary>({
+    queryKey: ["sales-summary"],
+    queryFn: () => apiRequest("/api/sales/summary"),
+  });
+
+  if (overviewLoading) return <LoadingOverlay message="Loading dashboard..." />;
+
+  const stockBuckets = calcStockHealthBuckets(overview?.items ?? []);
+  const poBuckets = calcPoBuckets(orders);
+
+  // Sales actions = number of channels needing attention
+  let salesActions = 0;
+  if (sales?.channelStatuses) {
+    if (sales.channelStatuses.customerOrders.pendingCount > 0) salesActions++;
+    // PnP needs action if no dispatch in last 7 days (mirrors RhythmPrompts logic)
+    const last = sales.channelStatuses.pnp.lastDispatchAt;
+    const pnpDue = !last || (Date.now() - new Date(last).getTime()) / (1000 * 60 * 60 * 24) >= 7;
+    if (pnpDue) salesActions++;
+    // Xero needs action if last import is before previous month end
+    const xeroLast = sales.channelStatuses.xero.lastImportAt;
+    const now = new Date();
+    const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+    if (!xeroLast || new Date(xeroLast) < prevMonthEnd) salesActions++;
+  }
+
+  const cards: StatusCardData[] = [
+    {
+      label: "Stock",
+      value: stockBuckets.reorder,
+      caption: "products at or below reorder point",
+      severity: stockBuckets.reorder > 0 ? "critical" : "ok",
+      to: "/stock",
+    },
+    {
+      label: "Orders",
+      value: poBuckets.open,
+      caption: "purchase orders in transit",
+      severity: poBuckets.dueThisWeek > 0 ? "warning" : poBuckets.open > 0 ? "neutral" : "ok",
+      to: "/orders",
+    },
+    {
+      label: "Sales",
+      value: salesActions,
+      caption: "actions needed",
+      severity: salesActions > 0 ? "warning" : "ok",
+      to: "/sales",
+    },
+  ];
+
+  const freshness = overview?.dataFreshness;
+  const greeting = (() => {
+    const h = new Date().getHours();
+    if (h < 12) return "Good morning";
+    if (h < 18) return "Good afternoon";
+    return "Good evening";
+  })();
+
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
-        <p className="text-slate-500 mt-1">
-          Welcome back, {user?.firstName ?? user?.email}
-        </p>
+        <p className="text-sm text-slate-500">{greeting}, {firstName(user?.email, user?.firstName)}</p>
+        <h1 className="text-2xl font-bold text-slate-900 mt-1">
+          {stockBuckets.reorder > 0
+            ? `Action needed — ${stockBuckets.reorder} ${stockBuckets.reorder === 1 ? "product requires" : "products require"} a decision today.`
+            : "All clear — nothing requires a decision today."}
+        </h1>
       </div>
 
-      {/* Quick Actions */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Link to="/stock/reorder" className="p-6 bg-white rounded-xl border border-border hover:border-primary/50 transition-colors text-left block">
-          <h3 className="font-semibold text-slate-900">Run Stock Check</h3>
-          <p className="text-sm text-slate-500 mt-1">
-            Check all products against reorder points
-          </p>
-        </Link>
-        <Link to="/stock/delivery" className="p-6 bg-white rounded-xl border border-green-200 hover:border-green-400 transition-colors text-left block">
-          <h3 className="font-semibold text-green-800">Stock In: Record Delivery</h3>
-          <p className="text-sm text-slate-500 mt-1">
-            Record goods received from manufacturer
-          </p>
-        </Link>
-        <Link to="/xero/import" className="p-6 bg-white rounded-xl border border-red-200 hover:border-red-400 transition-colors text-left block">
-          <h3 className="font-semibold text-red-800">Stock Out: Import Sales</h3>
-          <p className="text-sm text-slate-500 mt-1">
-            Pull sales data from Xero to debit stock
-          </p>
-        </Link>
-      </div>
+      <StatusCards cards={cards} />
 
-      {/* Stock Health Widget */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <StockHealthWidget />
+      <RhythmPrompts rhythm={rhythm} scope="all" />
 
-        <div className="bg-white rounded-xl border border-border p-6">
-          <h2 className="font-semibold text-slate-900 mb-4">Alerts & Notifications</h2>
-          <p className="text-sm text-slate-500">
-            No alerts at this time.
-          </p>
+      {freshness && (
+        <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-slate-400 pt-2 border-t border-border">
+          {freshness.openingBalanceDate && (
+            <span>
+              Opening balance: <strong className="text-slate-600">{formatDateShort(freshness.openingBalanceDate)}</strong>
+            </span>
+          )}
+          {freshness.lastSalesImportTo && (
+            <span>
+              Sales imported to: <strong className="text-slate-600">{formatDateShort(freshness.lastSalesImportTo)}</strong>
+            </span>
+          )}
+          {freshness.lastTransactionAt && (
+            <span>
+              Last updated: <strong className="text-slate-600">{formatDateShort(freshness.lastTransactionAt)}</strong>
+            </span>
+          )}
         </div>
-      </div>
+      )}
     </div>
   );
 }

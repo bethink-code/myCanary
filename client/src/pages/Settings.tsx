@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, Link } from "react-router-dom";
 import { apiRequest } from "../lib/queryClient";
 
 function getInitialTab(): string {
@@ -18,11 +18,17 @@ export default function Settings() {
     { id: "system", label: "System Settings" },
   ];
 
+  // Imports/setup that previously lived under Tools — link to their own routes.
+  const importTabs = [
+    { to: "/settings/opening-balance", label: "Opening Balance Import" },
+    { to: "/settings/supply-import", label: "Supply Import" },
+  ];
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-slate-900">Settings</h1>
 
-      <div className="flex gap-1 border-b border-border">
+      <div className="flex flex-wrap gap-1 border-b border-border">
         {tabs.map((tab) => (
           <button
             key={tab.id}
@@ -35,6 +41,15 @@ export default function Settings() {
           >
             {tab.label}
           </button>
+        ))}
+        {importTabs.map((tab) => (
+          <Link
+            key={tab.to}
+            to={tab.to}
+            className="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-700"
+          >
+            {tab.label}
+          </Link>
         ))}
       </div>
 

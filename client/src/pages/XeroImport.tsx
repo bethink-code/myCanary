@@ -394,7 +394,7 @@ export default function XeroImport() {
             <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-800">
               <strong>Opening balance required.</strong> You need to import opening balances first to establish a ledger start date.
               Sales imports can only cover periods <em>after</em> the opening balance date.
-              <Link to="/tools/opening-balance" className="ml-2 font-medium text-amber-900 underline">
+              <Link to="/settings/opening-balance" className="ml-2 font-medium text-amber-900 underline">
                 Import Opening Balances
               </Link>
             </div>
@@ -510,7 +510,7 @@ export default function XeroImport() {
             <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-800">
               <strong>Opening balance required.</strong> You need to import opening balances first to establish a ledger start date.
               Sales imports can only cover periods <em>after</em> the opening balance date.
-              <Link to="/tools/opening-balance" className="ml-2 font-medium text-amber-900 underline">
+              <Link to="/settings/opening-balance" className="ml-2 font-medium text-amber-900 underline">
                 Import Opening Balances
               </Link>
             </div>

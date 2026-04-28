@@ -56,9 +56,9 @@ export default function OrderList() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900">Orders</h1>
+        <h1 className="text-2xl font-bold text-slate-900">Customer Orders</h1>
         <Link
-          to="/orders/new"
+          to="/sales/customer-orders/new"
           className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90"
         >
           New Order
@@ -119,7 +119,7 @@ export default function OrderList() {
                     </td>
                     <td className="px-4 py-3 font-medium">
                       <Link
-                        to={`/orders/${order.id}`}
+                        to={`/sales/customer-orders/${order.id}`}
                         className="text-primary hover:underline"
                       >
                         {order.orderReference}
@@ -139,7 +139,7 @@ export default function OrderList() {
                     </td>
                     <td className="px-4 py-3">
                       <Link
-                        to={`/orders/${order.id}`}
+                        to={`/sales/customer-orders/${order.id}`}
                         className="text-primary hover:underline text-sm"
                       >
                         View

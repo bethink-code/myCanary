@@ -1,11 +1,9 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { apiRequest } from "../lib/queryClient";
 import { Link } from "react-router-dom";
-import { formatStock, calcStockStatus, getStatusBadge, formatDateShort } from "../lib/formatters";
-import RecordMovementModal from "../components/RecordMovementModal";
+import { formatStock, calcStockStatus, getStatusBadge } from "../../lib/formatters";
+import RecordMovementModal from "../../components/RecordMovementModal";
 
-interface StockItem {
+export interface StockItem {
   skuCode: string;
   productName: string;
   category: string;
@@ -35,24 +33,14 @@ const STATUS_FILTERS = [
   { value: "APPROACHING_AND_REORDER", label: "Approaching + Reorder" },
 ];
 
-export default function StockManagement() {
+export default function ProductsTable({ items, isLoading }: { items: StockItem[]; isLoading: boolean }) {
   const [categoryFilter, setCategoryFilter] = useState("");
   const [locationFilter, setLocationFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [movementTarget, setMovementTarget] = useState<StockItem | null>(null);
 
-  const { data: stockItems = [], isLoading } = useQuery<StockItem[]>({
-    queryKey: ["stock-summary"],
-    queryFn: () => apiRequest("/api/stock/summary"),
-  });
-
-  const { data: ledgerData } = useQuery<{ ledgerStartDate: string | null; hasOpeningBalance: boolean }>({
-    queryKey: ["ledger-date"],
-    queryFn: () => apiRequest("/api/xero/import/ledger-date"),
-  });
-
-  const filtered = stockItems.filter((item) => {
+  const filtered = items.filter((item) => {
     if (categoryFilter && item.category !== categoryFilter) return false;
     if (locationFilter && item.primaryStockLocation !== locationFilter) return false;
     if (searchTerm) {
@@ -79,37 +67,7 @@ export default function StockManagement() {
   });
 
   return (
-    <div className="space-y-6">
-      <div>
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <h1 className="text-2xl font-bold text-slate-900">Stock Levels</h1>
-          <div className="flex items-center gap-2">
-            <Link
-              to="/xero/import"
-              className="px-4 py-2 bg-white border border-border text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50"
-            >
-              Fetch sales from Xero
-            </Link>
-            <Link
-              to="/stock/delivery"
-              className="px-4 py-2 bg-white border border-border text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50"
-            >
-              Record delivery
-            </Link>
-            <Link
-              to="/stock/reorder"
-              className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90"
-            >
-              Run Stock Check
-            </Link>
-          </div>
-        </div>
-        <p className="text-sm text-slate-500 mt-1">
-          On Hand = Stock In (deliveries) minus Stock Out (sales). Per-row <em>Record movement</em> handles adjustments and transfers.
-        </p>
-      </div>
-
-      {/* Filters */}
+    <div className="space-y-4">
       <div className="flex flex-wrap gap-3">
         <input
           type="text"
@@ -124,9 +82,7 @@ export default function StockManagement() {
           className="px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-ring"
         >
           {CATEGORIES.map((c) => (
-            <option key={c.value} value={c.value}>
-              {c.label}
-            </option>
+            <option key={c.value} value={c.value}>{c.label}</option>
           ))}
         </select>
         <select
@@ -144,14 +100,11 @@ export default function StockManagement() {
           className="px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-ring"
         >
           {STATUS_FILTERS.map((s) => (
-            <option key={s.value} value={s.value}>
-              {s.label}
-            </option>
+            <option key={s.value} value={s.value}>{s.label}</option>
           ))}
         </select>
       </div>
 
-      {/* Stock Table */}
       {isLoading ? (
         <div className="flex justify-center py-12">
           <div className="animate-spin w-8 h-8 border-4 border-primary border-t-transparent rounded-full" />
@@ -162,88 +115,50 @@ export default function StockManagement() {
             <table className="w-full text-sm">
               <thead className="bg-slate-50">
                 <tr>
-                  <th className="text-left px-4 py-3 font-medium text-slate-600">
-                    Product
-                  </th>
-                  <th className="text-left px-4 py-3 font-medium text-slate-600">
-                    Category
-                  </th>
-                  <th className="text-right px-4 py-3 font-medium text-slate-600">
-                    THH On Hand
-                  </th>
-                  <th className="text-right px-4 py-3 font-medium text-slate-600">
-                    8/8 On Hand
-                  </th>
-                  <th className="text-right px-4 py-3 font-medium text-slate-600">
-                    Reorder Point
-                  </th>
-                  <th className="text-center px-4 py-3 font-medium text-slate-600">
-                    Status
-                  </th>
-                  <th className="text-left px-4 py-3 font-medium text-slate-600">
-                    Manufacturer
-                  </th>
+                  <th className="text-left px-4 py-3 font-medium text-slate-600">Product</th>
+                  <th className="text-left px-4 py-3 font-medium text-slate-600">Category</th>
+                  <th className="text-right px-4 py-3 font-medium text-slate-600">THH On Hand</th>
+                  <th className="text-right px-4 py-3 font-medium text-slate-600">8/8 On Hand</th>
+                  <th className="text-right px-4 py-3 font-medium text-slate-600">Reorder Point</th>
+                  <th className="text-center px-4 py-3 font-medium text-slate-600">Status</th>
+                  <th className="text-left px-4 py-3 font-medium text-slate-600">Manufacturer</th>
                   <th className="px-4 py-3"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {filtered.map((item) => {
                   const primaryStock =
-                    item.primaryStockLocation === "88"
-                      ? item.eightEightStock
-                      : item.thhStock;
+                    item.primaryStockLocation === "88" ? item.eightEightStock : item.thhStock;
                   const status = getStatusBadge(calcStockStatus(primaryStock, item.reorderPoint));
-
                   return (
                     <tr key={item.skuCode} className="hover:bg-slate-50">
                       <td className="px-4 py-3">
-                        <Link
-                          to={`/stock/product/${item.skuCode}`}
-                          className="text-primary hover:underline font-medium"
-                        >
+                        <Link to={`/stock/product/${item.skuCode}`} className="text-primary hover:underline font-medium">
                           {item.productName}
                         </Link>
-                        <span className="text-slate-400 ml-2 text-xs">
-                          {item.skuCode}
-                        </span>
+                        <span className="text-slate-400 ml-2 text-xs">{item.skuCode}</span>
                       </td>
-                      <td className="px-4 py-3 text-slate-600">
-                        {item.category.replace("_", " ")}
-                      </td>
+                      <td className="px-4 py-3 text-slate-600">{item.category.replace("_", " ")}</td>
                       <td className="px-4 py-3 text-right font-mono">
                         {formatStock(item.thhStock, item.unitsPerCase, item.category)}
                       </td>
                       <td className="px-4 py-3 text-right font-mono">
-                        {item.primaryStockLocation === "88" ||
-                        item.brand === "NP" ||
-                        item.eightEightStock > 0
-                          ? formatStock(
-                              item.eightEightStock,
-                              item.unitsPerCase,
-                              item.category
-                            )
+                        {item.primaryStockLocation === "88" || item.brand === "NP" || item.eightEightStock > 0
+                          ? formatStock(item.eightEightStock, item.unitsPerCase, item.category)
                           : "—"}
                       </td>
                       <td className="px-4 py-3 text-right font-mono">
                         {item.reorderPoint !== null
-                          ? formatStock(
-                              item.reorderPoint,
-                              item.unitsPerCase,
-                              item.category
-                            )
+                          ? formatStock(item.reorderPoint, item.unitsPerCase, item.category)
                           : "—"}
                       </td>
                       <td className="px-4 py-3 text-center">
-                        <span
-                          className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${status.className}`}
-                        >
+                        <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${status.className}`}>
                           {status.label}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-slate-600">
-                        {item.manufacturerName ?? (
-                          <span className="text-amber-600">TBC</span>
-                        )}
+                        {item.manufacturerName ?? <span className="text-amber-600">TBC</span>}
                       </td>
                       <td className="px-4 py-3">
                         <button
@@ -258,10 +173,7 @@ export default function StockManagement() {
                 })}
                 {filtered.length === 0 && (
                   <tr>
-                    <td
-                      colSpan={8}
-                      className="px-4 py-8 text-center text-slate-500"
-                    >
+                    <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
                       No products match your filters.
                     </td>
                   </tr>
@@ -270,7 +182,7 @@ export default function StockManagement() {
             </table>
           </div>
           <div className="px-4 py-3 bg-slate-50 border-t border-border text-xs text-slate-500">
-            Showing {filtered.length} of {stockItems.length} products
+            Showing {filtered.length} of {items.length} products
           </div>
         </div>
       )}

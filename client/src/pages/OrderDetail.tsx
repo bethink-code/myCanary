@@ -138,7 +138,7 @@ export default function OrderDetail() {
       }),
     onSuccess: (data: any) => {
       invalidateOrderData(queryClient);
-      navigate(`/orders/${data.id}`);
+      navigate(`/sales/customer-orders/${data.id}`);
     },
   });
 
@@ -186,8 +186,8 @@ export default function OrderDetail() {
     return (
       <div className="text-center py-12">
         <p className="text-slate-500">Order not found.</p>
-        <Link to="/orders" className="text-primary hover:underline text-sm mt-2 inline-block">
-          Back to Orders
+        <Link to="/sales/customer-orders" className="text-primary hover:underline text-sm mt-2 inline-block">
+          Back to Customer Orders
         </Link>
       </div>
     );
@@ -200,10 +200,10 @@ export default function OrderDetail() {
       {/* Header */}
       <div>
         <Link
-          to="/orders"
+          to="/sales/customer-orders"
           className="text-sm text-slate-500 hover:text-primary mb-1 inline-block"
         >
-          &larr; Back to Orders
+          &larr; Back to Customer Orders
         </Link>
         <h1 className="text-2xl font-bold text-slate-900">
           {isNew ? "New Order" : `Order ${order!.orderReference}`}

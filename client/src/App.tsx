@@ -3,9 +3,9 @@ import { useAuth } from "./hooks/useAuth";
 import { apiRequest } from "./lib/queryClient";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import Landing from "./pages/Landing";
-import Snapshot from "./pages/Snapshot";
+import Dashboard from "./pages/Dashboard";
 import Admin from "./pages/Admin";
-import StockManagement from "./pages/StockManagement";
+import StockLanding from "./pages/StockLanding";
 import ProductDetail from "./pages/ProductDetail";
 import DeliveryReceipt from "./pages/DeliveryReceipt";
 import ReorderWorkflow from "./pages/ReorderWorkflow";
@@ -16,30 +16,32 @@ import OrderDetail from "./pages/OrderDetail";
 import PnpWeekly from "./pages/PnpWeekly";
 import OpeningBalance from "./pages/OpeningBalance";
 import Settings from "./pages/Settings";
-import PurchaseOrders from "./pages/PurchaseOrders";
+import OrdersLanding from "./pages/OrdersLanding";
 import StockAdjustment from "./pages/StockAdjustment";
 import Supplies from "./pages/Supplies";
 import SupplyImport from "./pages/SupplyImport";
 import SetupJourney from "./pages/SetupJourney";
+import SalesLanding from "./pages/SalesLanding";
 import NotificationBell from "./components/NotificationBell";
 import NotFound from "./pages/not-found";
-import { useState, useRef, useEffect } from "react";
+import { useState, useEffect } from "react";
 
-const STOCK_LINKS = [
-  { to: "/stock", label: "Stock Levels" },
-  { to: "/stock/supplies", label: "Supplies" },
+// Flat 6-item nav. Every section is one click; no dropdowns.
+const NAV_ITEMS: { to: string; label: string; admin?: boolean }[] = [
+  { to: "/dashboard", label: "Dashboard" },
+  { to: "/stock", label: "Stock" },
   { to: "/orders", label: "Orders" },
-  { to: "/pnp", label: "PnP Weekly" },
-  { to: "/xero/import", label: "Xero Import" },
-  { to: "/stock/reorder", label: "Reorder" },
-  { to: "/stock/purchase-orders", label: "Purchase Orders" },
-  { to: "/stock/delivery", label: "Record Delivery" },
+  { to: "/sales", label: "Sales" },
+  { to: "/settings", label: "Settings" },
+  { to: "/admin", label: "Admin", admin: true },
 ];
 
-const TOOLS_LINKS = [
-  { to: "/tools/opening-balance", label: "Opening Balance Import" },
-  { to: "/tools/supply-import", label: "Supply Import" },
-];
+function isSectionActive(pathname: string, to: string): boolean {
+  if (to === "/dashboard") {
+    return pathname === "/" || pathname === "/dashboard" || pathname.startsWith("/dashboard/");
+  }
+  return pathname === to || pathname.startsWith(to + "/");
+}
 
 function TermsModal({ onAccept }: { onAccept: () => void }) {
   return (
@@ -62,78 +64,13 @@ function TermsModal({ onAccept }: { onAccept: () => void }) {
   );
 }
 
-function NavDropdown({ label, links, isActiveRoute }: { label: string; links: typeof STOCK_LINKS; isActiveRoute: (pathname: string) => boolean }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const location = useLocation();
-
-  useEffect(() => { setOpen(false); }, [location.pathname]);
-
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    }
-    if (open) {
-      document.addEventListener("mousedown", handleClick);
-      return () => document.removeEventListener("mousedown", handleClick);
-    }
-  }, [open]);
-
-  const active = isActiveRoute(location.pathname);
-
-  return (
-    <div ref={ref} className="relative">
-      <button
-        onClick={() => setOpen(!open)}
-        className={`text-sm flex items-center gap-1 transition-colors ${
-          active ? "text-slate-900 font-medium" : "text-slate-600 hover:text-slate-900"
-        }`}
-      >
-        {label}
-        <svg className={`w-3.5 h-3.5 transition-transform ${open ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-      {open && (
-        <div className="absolute top-full left-0 mt-2 w-56 bg-white rounded-xl border border-border shadow-lg py-2 z-50">
-          {links.map((link) => (
-            <Link key={link.to} to={link.to}
-              className={`block px-4 py-2 text-sm transition-colors ${
-                location.pathname === link.to ? "text-primary bg-slate-50 font-medium" : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
-              }`}
-            >
-              {link.label}
-            </Link>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function MobileSubMenu({ open, onClose, links }: { open: boolean; onClose: () => void; links: typeof STOCK_LINKS }) {
-  const location = useLocation();
-  useEffect(() => { onClose(); }, [location.pathname]);
-  if (!open) return null;
-  return (
-    <div className="md:hidden border-t border-border bg-white px-4 py-3 space-y-1">
-      {links.map((link) => (
-        <Link key={link.to} to={link.to}
-          className={`block px-3 py-2 rounded-lg text-sm ${
-            location.pathname === link.to ? "text-primary bg-slate-50 font-medium" : "text-slate-600 hover:bg-slate-50"
-          }`}
-        >{link.label}</Link>
-      ))}
-    </div>
-  );
-}
-
 function AppLayout() {
   const { user, isAdmin } = useAuth();
   const qc = useQueryClient();
   const location = useLocation();
-  const [mobileStockOpen, setMobileStockOpen] = useState(false);
-  const [mobileToolsOpen, setMobileToolsOpen] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  useEffect(() => { setMobileOpen(false); }, [location.pathname]);
 
   const handleLogout = async () => {
     await apiRequest("/auth/logout", { method: "POST" });
@@ -141,11 +78,7 @@ function AppLayout() {
     window.location.href = "/";
   };
 
-  const isStockRoute =
-    location.pathname.startsWith("/stock") ||
-    location.pathname.startsWith("/orders") ||
-    location.pathname.startsWith("/pnp") ||
-    location.pathname.startsWith("/xero");
+  const visibleItems = NAV_ITEMS.filter((item) => !item.admin || isAdmin);
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -153,99 +86,39 @@ function AppLayout() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-8">
-              <Link to="/" className="font-bold text-slate-900">
+              <Link to="/dashboard" className="font-bold text-slate-900">
                 MyCanary
               </Link>
               {/* Desktop nav */}
               <div className="hidden md:flex items-center gap-6">
-                <Link
-                  to="/"
-                  className={`text-sm transition-colors ${
-                    location.pathname === "/"
-                      ? "text-slate-900 font-medium"
-                      : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  Snapshot
-                </Link>
-                <NavDropdown
-                  label="Stock"
-                  links={STOCK_LINKS}
-                  isActiveRoute={(p) => p.startsWith("/stock") || p.startsWith("/orders") || p.startsWith("/pnp") || p.startsWith("/xero")}
-                />
-                <NavDropdown
-                  label="Tools"
-                  links={TOOLS_LINKS}
-                  isActiveRoute={(p) => p.startsWith("/tools")}
-                />
-                <Link
-                  to="/settings"
-                  className={`text-sm transition-colors ${
-                    location.pathname === "/settings"
-                      ? "text-slate-900 font-medium"
-                      : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  Settings
-                </Link>
-                {isAdmin && (
+                {visibleItems.map((item) => (
                   <Link
-                    to="/admin"
+                    key={item.to}
+                    to={item.to}
                     className={`text-sm transition-colors ${
-                      location.pathname.startsWith("/admin")
+                      isSectionActive(location.pathname, item.to)
                         ? "text-slate-900 font-medium"
                         : "text-slate-600 hover:text-slate-900"
                     }`}
                   >
-                    Admin
+                    {item.label}
                   </Link>
-                )}
+                ))}
               </div>
-              {/* Mobile nav */}
-              <div className="flex md:hidden items-center gap-4">
-                <Link
-                  to="/"
-                  className={`text-sm ${location.pathname === "/" ? "text-slate-900 font-medium" : "text-slate-600"}`}
-                >
-                  Snapshot
-                </Link>
-                <button
-                  onClick={() => { setMobileStockOpen(!mobileStockOpen); setMobileToolsOpen(false); }}
-                  className={`text-sm flex items-center gap-1 ${
-                    isStockRoute ? "text-slate-900 font-medium" : "text-slate-600"
-                  }`}
-                >
-                  Stock
-                  <svg className={`w-3.5 h-3.5 transition-transform ${mobileStockOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-                <button
-                  onClick={() => { setMobileToolsOpen(!mobileToolsOpen); setMobileStockOpen(false); }}
-                  className={`text-sm flex items-center gap-1 ${
-                    location.pathname.startsWith("/tools") ? "text-slate-900 font-medium" : "text-slate-600"
-                  }`}
-                >
-                  Tools
-                  <svg className={`w-3.5 h-3.5 transition-transform ${mobileToolsOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-                <Link
-                  to="/settings"
-                  className={`text-sm ${location.pathname === "/settings" ? "text-slate-900 font-medium" : "text-slate-600"}`}
-                >
-                  Settings
-                </Link>
-                {isAdmin && (
-                  <Link
-                    to="/admin"
-                    className={`text-sm ${location.pathname.startsWith("/admin") ? "text-slate-900 font-medium" : "text-slate-600"}`}
-                  >
-                    Admin
-                  </Link>
-                )}
-              </div>
+              {/* Mobile hamburger */}
+              <button
+                onClick={() => setMobileOpen(!mobileOpen)}
+                className="md:hidden p-2 -ml-2 text-slate-600"
+                aria-label={mobileOpen ? "Close navigation" : "Open navigation"}
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d={mobileOpen ? "M6 18L18 6M6 6l12 12" : "M4 6h16M4 12h16M4 18h16"}
+                  />
+                </svg>
+              </button>
             </div>
             <div className="flex items-center gap-3">
               <NotificationBell />
@@ -259,30 +132,72 @@ function AppLayout() {
             </div>
           </div>
         </div>
-        <MobileSubMenu open={mobileStockOpen} onClose={() => setMobileStockOpen(false)} links={STOCK_LINKS} />
-        <MobileSubMenu open={mobileToolsOpen} onClose={() => setMobileToolsOpen(false)} links={TOOLS_LINKS} />
+        {/* Mobile drawer */}
+        {mobileOpen && (
+          <div className="md:hidden border-t border-border bg-white px-4 py-3 space-y-1">
+            {visibleItems.map((item) => (
+              <Link
+                key={item.to}
+                to={item.to}
+                className={`block px-3 py-2 rounded-lg text-sm ${
+                  isSectionActive(location.pathname, item.to)
+                    ? "text-primary bg-slate-50 font-medium"
+                    : "text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                {item.label}
+              </Link>
+            ))}
+          </div>
+        )}
       </nav>
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-24">
         <Routes>
-          <Route path="/" element={<Snapshot />} />
-          <Route path="/stock" element={<StockManagement />} />
+          {/* Home → Dashboard */}
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/dashboard" element={<Dashboard />} />
+
+          {/* Stock */}
+          <Route path="/stock" element={<StockLanding />} />
           <Route path="/stock/product/:skuCode" element={<ProductDetail />} />
-          <Route path="/stock/reorder" element={<ReorderWorkflow />} />
-          <Route path="/stock/purchase-orders" element={<PurchaseOrders />} />
           <Route path="/stock/supplies" element={<Supplies />} />
-          <Route path="/orders" element={<OrderList />} />
-          <Route path="/orders/new" element={<OrderDetail />} />
-          <Route path="/orders/:id" element={<OrderDetail />} />
-          <Route path="/pnp" element={<PnpWeekly />} />
-          <Route path="/stock/delivery" element={<DeliveryReceipt />} />
-          <Route path="/tools/opening-balance" element={<OpeningBalance />} />
-          <Route path="/tools/supply-import" element={<SupplyImport />} />
-          <Route path="/tools/adjustment" element={<StockAdjustment />} />
-          <Route path="/tools/transfer" element={<TransferStock />} />
-          <Route path="/xero/import" element={<XeroImport />} />
+          <Route path="/stock/transfer" element={<TransferStock />} />
+          <Route path="/stock/adjustment" element={<StockAdjustment />} />
+
+          {/* Orders (manufacturer POs) */}
+          <Route path="/orders" element={<OrdersLanding />} />
+          <Route path="/orders/reorder" element={<ReorderWorkflow />} />
+          <Route path="/orders/delivery" element={<DeliveryReceipt />} />
+
+          {/* Sales */}
+          <Route path="/sales" element={<SalesLanding />} />
+          <Route path="/sales/customer-orders" element={<OrderList />} />
+          <Route path="/sales/customer-orders/new" element={<OrderDetail />} />
+          <Route path="/sales/customer-orders/:id" element={<OrderDetail />} />
+          <Route path="/sales/pnp" element={<PnpWeekly />} />
+          <Route path="/sales/xero/import" element={<XeroImport />} />
+
+          {/* Settings */}
           <Route path="/settings" element={<Settings />} />
+          <Route path="/settings/opening-balance" element={<OpeningBalance />} />
+          <Route path="/settings/supply-import" element={<SupplyImport />} />
+
+          {/* Admin + Setup */}
           <Route path="/admin" element={<Admin />} />
           <Route path="/setup" element={<SetupJourney />} />
+
+          {/* Legacy redirects — TODO(remove-after 2026-Q3) */}
+          <Route path="/stock/reorder" element={<Navigate to="/orders/reorder" replace />} />
+          <Route path="/stock/purchase-orders" element={<Navigate to="/orders" replace />} />
+          <Route path="/stock/delivery" element={<Navigate to="/orders/delivery" replace />} />
+          <Route path="/orders/new" element={<Navigate to="/sales/customer-orders/new" replace />} />
+          <Route path="/pnp" element={<Navigate to="/sales/pnp" replace />} />
+          <Route path="/xero/import" element={<Navigate to="/sales/xero/import" replace />} />
+          <Route path="/tools/opening-balance" element={<Navigate to="/settings/opening-balance" replace />} />
+          <Route path="/tools/supply-import" element={<Navigate to="/settings/supply-import" replace />} />
+          <Route path="/tools/adjustment" element={<Navigate to="/stock/adjustment" replace />} />
+          <Route path="/tools/transfer" element={<Navigate to="/stock/transfer" replace />} />
+
           <Route path="*" element={<NotFound />} />
         </Routes>
       </main>
@@ -347,9 +262,12 @@ function SetupGate() {
     );
   }
 
-  // If setup incomplete and user is on the home page, show the journey.
+  // If setup incomplete and user is on the dashboard (or pre-redirect home), show the journey.
   // If they navigate to a specific page (via setup links), let them through.
-  if (setupStatus && !setupStatus.setupComplete && location.pathname === "/") {
+  // The user can also explicitly skip setup via SetupJourney's "Skip for now" button.
+  const onLanding = location.pathname === "/" || location.pathname === "/dashboard";
+  const setupSkipped = typeof window !== "undefined" && localStorage.getItem("setup-skipped") === "true";
+  if (setupStatus && !setupStatus.setupComplete && onLanding && !setupSkipped) {
     return <SetupJourney />;
   }
 

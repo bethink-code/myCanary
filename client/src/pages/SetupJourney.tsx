@@ -59,7 +59,7 @@ const STEPS: StepConfig[] = [
     title: "Your Opening Stock",
     explanation:
       "Your starting stock levels. This is the baseline the canary measures everything against.",
-    link: "/tools/opening-balance",
+    link: "/settings/opening-balance",
     linkLabel: "View Opening Balance",
   },
   {
@@ -75,7 +75,7 @@ const STEPS: StepConfig[] = [
     title: "Your Sales Data",
     explanation:
       "Your sales history from Xero. This tells the canary how fast stock is moving.",
-    link: "/xero/import",
+    link: "/sales/xero/import",
     linkLabel: "View Xero Import",
   },
   {
@@ -83,7 +83,7 @@ const STEPS: StepConfig[] = [
     title: "Your Supplies",
     explanation:
       "Raw materials and packaging you supply to manufacturers. The canary tracks these alongside finished goods.",
-    link: "/tools/supply-import",
+    link: "/settings/supply-import",
     linkLabel: "Import Supplies",
   },
 ];
@@ -141,13 +141,26 @@ export default function SetupJourney() {
 
   const allComplete = STEPS.every((cfg) => cfg.optional || data.steps[cfg.key].complete);
 
+  function skipForNow() {
+    localStorage.setItem("setup-skipped", "true");
+    navigate("/dashboard");
+  }
+
   return (
     <div className="max-w-2xl mx-auto px-4 py-8 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">Setup Journey</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Complete these steps to get your canary watching over your stock.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Setup Journey</h1>
+          <p className="mt-1 text-sm text-slate-500">
+            Complete these steps to get your canary watching over your stock.
+          </p>
+        </div>
+        <button
+          onClick={skipForNow}
+          className="text-sm text-slate-500 hover:text-slate-700 underline"
+        >
+          Skip for now
+        </button>
       </div>
 
       <div className="border border-slate-200 rounded-lg divide-y divide-slate-200">
