@@ -10,30 +10,53 @@ supply levels per location are interrelated and should live as one
 coherent module rather than scattered across Stock, Settings, and
 Tools.
 
-## Current state (all three foundations shipped 2026-04-28)
+## Current state (foundations F1–F5 shipped 2026-04-28)
 
-- **Levels by location** — location-aware ledger on `supply_transactions`
-  (THH / Zinchar / NutriMed). Per-row location column with default 'THH'.
-  Supplies page shows per-location columns; RecordMovementModal location-aware.
-- **BOM relationships** — `supplyProductMappings` table active (numeric
-  quantity_per_unit, unique-on-(client, supply, sku) index). Three UI
-  surfaces live: Settings → BOM Matrix tab (bulk grid), Supplies → "Used
-  in" pill list on expanded row, ProductDetail → "Bill of materials"
-  table. Pure calc `calcSupplyConsumption` in shared/calculations/bom.ts.
-- **MOQ rules** — typed columns on supplies (moqStructured, moqUnit,
-  caseRoundingRequired, unitsPerCase), products (caseRoundingRequired,
-  minOrderQty), manufacturers (minOrderValueZar, orderFrequencyCapDays).
-  New `moq_bundling_rules` table for "when ordering A, bundle B at
-  ratio R". Settings → MOQ Rules tab manages bundling. Pure calc
-  `applyMoqRules`/`applyBundlingRules`/`checkOrderFrequency` in
-  shared/calculations/moq.ts.
+- **Levels by location (F1)** — `supply_transactions.location` column
+  (THH / Zinchar / NutriMed). RecordMovementModal location-aware with
+  three-pill direction toggle (in / out / adjustment). Supplies page
+  shows per-location columns + a Total.
+- **BOM relationships (F2)** — `supplyProductMappings` active with
+  `numeric(12,4) quantity_per_unit` and unique index. Three UI surfaces:
+  Settings → BOM Matrix bulk grid, Supplies "Used in" pill list on
+  expanded row, ProductDetail "Bill of materials" table.
+- **MOQ rules (F3)** — typed columns on products, supplies, manufacturers
+  + a small `moq_bundling_rules` table ("when ordering A, bundle B at
+  ratio R"). Settings → MOQ Rules tab manages bundling. Free-text fields
+  (`manufacturers.moqNotes`, `supplies.moq`) kept alongside as colour.
+- **Manufacturer batch minimum + per-batch BOM (F4)** — Beryl's data
+  shape says raw materials are tracked per batch (20.005 kg Kelp per
+  50,000-tablet Allergy Care batch), not per pack. Schema additions:
+  `products.batchSizeMinimum` + `batchSizeUnit` (tablets/units/kg) +
+  `packSizeUnits`, and `supply_product_mappings.quantityBasis` (per_unit
+  default | per_batch). Conversion helper `resolveBomPerPack` divides
+  by `packsPerBatch(product)` at draft time. Per-batch entries get an
+  amber `/batch` indicator in the matrix.
+- **Brand/range split (F5)** — `brand` field was muddling ownership
+  with product line. Now: `brand` = ownership (THH or NP), new `range`
+  column = product line (HH = Herbal Horse mixes, HP = Herbal Pet
+  chews/formulas/sprays/gravy, NP = Nutriphase). Both selectable in
+  the Product edit modal. Migration script
+  (`scripts/migrateBrandRange.ts`, idempotent) backfilled both DBs.
 
-Free-text MOQ fields (`manufacturers.moqNotes`, `supplies.moq`) kept
-alongside the structured columns as colour/documentation.
+## Pure calc layer ready for PO drafting
 
-Supplies-side MOQ edit UI (the modal) was deferred — the API accepts
-the new fields but Beryl edits via the API or via direct DB. Add a
-supplies edit modal when convenient.
+`shared/calculations/`:
+- `stock.ts` — calcRecommendedOrderQty, calcStockHealthBuckets
+- `po.ts` — calcPoBuckets, groupPosByPipelineStatus
+- `moq.ts` — applyMoqRules, applyBundlingRules, checkOrderFrequency
+- `bom.ts` — calcSupplyConsumption, packsPerBatch, perPackFromBatch,
+  resolveBomPerPack
+- `sales.ts` — calcSalesBuckets, calcChannelStatus
+
+73+ unit tests covering all of the above.
+
+## Beryl's setup guide
+
+`docs/beryl-setup-guide.md` — step-by-step procedure for populating the
+data PO automation needs (manufacturers, products, supplies, BOM matrix,
+MOQ bundling rules), with a smoke test, the per_unit/per_batch mapping
+from her Animal Farm sheet, and the front+back-label gotcha.
 
 ## Open consolidation question
 

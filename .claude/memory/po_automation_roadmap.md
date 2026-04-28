@@ -1,9 +1,12 @@
 # PO automation roadmap
 
 Three pieces of work confirmed by Garth in the 2026-04-28 design session.
-Foundations (supplies location ledger, BOM matrix, structured MOQ rules)
-all shipped to prod 2026-04-28. Next: thorough prod testing of the
-foundations, then this work.
+Foundations F1–F5 all shipped to prod 2026-04-28: supplies location
+ledger, BOM matrix (with per_unit / per_batch basis), structured MOQ
+rules + bundling, manufacturer batch minimums, brand/range split.
+
+Next: Beryl populates her data via Settings using `docs/beryl-setup-guide.md`.
+Once populated, this work becomes buildable.
 
 ## 1. PO drafting from MOQ + BOM + reorder calc
 
@@ -48,8 +51,20 @@ whether to order more. Automate that prompt:
 
 ## How to apply
 
-Foundations are shipped — confirm Beryl has populated the BOM Matrix
-(Settings → BOM Matrix) and the structured MOQ fields on
-products/manufacturers/supplies + the bundling rules (Settings → MOQ
-Rules) before drafting can produce useful output. Likely slicing order:
-drafting first, Xero sync second, after-send check third.
+Foundations are shipped — confirm Beryl has populated:
+- Manufacturer fields (lead time, minOrderValueZar, orderFrequencyCapDays)
+- Product fields per SKU: brand + range, batchSizeMinimum + batchSizeUnit
+  + packSizeUnits, caseRoundingRequired, minOrderQty
+- Supply fields per supply: reorderPoint, leadTime, moqStructured,
+  unitsPerCase, caseRoundingRequired
+- BOM Matrix cells (Settings → BOM Matrix) — per_unit for packaging,
+  per_batch for raw materials
+- MOQ Rules bundling table (Settings → MOQ Rules)
+
+Pure calcs ready in `shared/calculations/`: applyMoqRules,
+applyBundlingRules, calcRecommendedOrderQty, resolveBomPerPack,
+calcSupplyConsumption, checkOrderFrequency.
+
+Likely slicing order: drafting endpoint first (returns draft + warnings
+for missing batch info / unmapped supplies), then approval UI, then Xero
+PO sync on approval, then after-send supplies-check via PO_SENT event.
