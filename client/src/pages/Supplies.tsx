@@ -1,8 +1,10 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "../lib/queryClient";
+import { invalidateStockData } from "../lib/invalidation";
 import { formatDateShort, getStatusBadge, calcStockStatus } from "../lib/formatters";
 import RecordMovementModal from "../components/RecordMovementModal";
+import SupplyEditModal from "../components/SupplyEditModal";
 import StockShell from "./stock/StockShell";
 import type { StatusCardData } from "./stock/StatusCards";
 
@@ -15,7 +17,17 @@ interface Supply {
   subcategory: string | null;
   unitOfMeasure: string | null;
   supplier: string | null;
+  supplierContact: string | null;
+  priceDescription: string | null;
+  moq: string | null;
+  leadTime: string | null;
   reorderPoint: number | null;
+  moqStructured: number | null;
+  moqUnit: string | null;
+  caseRoundingRequired: boolean;
+  unitsPerCase: number | null;
+  notes: string | null;
+  isActive: boolean;
   currentStock: number;
   byLocation: { THH: number; Zinchar: number; NutriMed: number };
 }
@@ -57,14 +69,30 @@ function fmtQty(n: number): string {
 // ---------- Component ----------
 
 export default function Supplies() {
+  const qc = useQueryClient();
   const [categoryFilter, setCategoryFilter] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [movementTarget, setMovementTarget] = useState<Supply | null>(null);
+  const [editingSupply, setEditingSupply] = useState<Supply | null>(null);
+  const [creatingSupply, setCreatingSupply] = useState(false);
 
   const { data: supplies = [], isLoading } = useQuery<Supply[]>({
     queryKey: ["supplies"],
     queryFn: () => apiRequest("/api/supplies"),
+  });
+
+  const upsertMutation = useMutation({
+    mutationFn: (payload: { id?: number; data: Record<string, unknown> }) =>
+      payload.id
+        ? apiRequest(`/api/supplies/${payload.id}`, { method: "PATCH", body: JSON.stringify(payload.data) })
+        : apiRequest("/api/supplies", { method: "POST", body: JSON.stringify(payload.data) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["supplies"] });
+      invalidateStockData(qc);
+      setEditingSupply(null);
+      setCreatingSupply(false);
+    },
   });
 
   // Detail query loads transactions inline alongside the supply.
@@ -94,23 +122,31 @@ export default function Supplies() {
       subtitle="Raw materials and packaging tracked alongside finished goods."
       statusCards={statusCards}
     >
-      <div className="flex flex-wrap gap-3">
-        <input
-          type="text"
-          placeholder="Search supplies..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="px-3 py-2 border border-border rounded-lg text-sm w-64 focus:outline-none focus:ring-2 focus:ring-ring"
-        />
-        <select
-          value={categoryFilter}
-          onChange={(e) => setCategoryFilter(e.target.value)}
-          className="px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+      <div className="flex flex-wrap gap-3 items-center justify-between">
+        <div className="flex flex-wrap gap-3">
+          <input
+            type="text"
+            placeholder="Search supplies..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="px-3 py-2 border border-border rounded-lg text-sm w-64 focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className="px-3 py-2 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          >
+            {CATEGORY_FILTERS.map((c) => (
+              <option key={c.value} value={c.value}>{c.label}</option>
+            ))}
+          </select>
+        </div>
+        <button
+          onClick={() => setCreatingSupply(true)}
+          className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90"
         >
-          {CATEGORY_FILTERS.map((c) => (
-            <option key={c.value} value={c.value}>{c.label}</option>
-          ))}
-        </select>
+          New supply
+        </button>
       </div>
 
       {isLoading ? (
@@ -132,6 +168,7 @@ export default function Supplies() {
                   <th className="text-right px-4 py-3 font-medium text-slate-600">Reorder Point</th>
                   <th className="text-center px-4 py-3 font-medium text-slate-600">Status</th>
                   <th className="text-left px-4 py-3 font-medium text-slate-600">Supplier</th>
+                  <th className="px-4 py-3"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -176,11 +213,22 @@ export default function Supplies() {
                         <td className="px-4 py-3 text-slate-600">
                           {supply.supplier ?? <span className="text-slate-400">—</span>}
                         </td>
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingSupply(supply);
+                            }}
+                            className="text-xs text-primary hover:underline"
+                          >
+                            Edit
+                          </button>
+                        </td>
                       </tr>
 
                       {isExpanded && (
                         <tr key={`${supply.id}-detail`}>
-                          <td colSpan={9} className="bg-slate-50 px-6 py-4 space-y-4">
+                          <td colSpan={10} className="bg-slate-50 px-6 py-4 space-y-4">
                             <SupplyUsedInList supplyId={supply.id} />
 
                             <div>
@@ -241,7 +289,7 @@ export default function Supplies() {
                 })}
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
+                    <td colSpan={10} className="px-4 py-8 text-center text-slate-500">
                       No supplies match your filters.
                     </td>
                   </tr>
@@ -261,6 +309,18 @@ export default function Supplies() {
           subjectId={movementTarget.id}
           subjectName={movementTarget.name}
           onClose={() => setMovementTarget(null)}
+        />
+      )}
+
+      {(editingSupply || creatingSupply) && (
+        <SupplyEditModal
+          supply={editingSupply}
+          saving={upsertMutation.isPending}
+          onClose={() => {
+            setEditingSupply(null);
+            setCreatingSupply(false);
+          }}
+          onSave={(data) => upsertMutation.mutate({ id: editingSupply?.id, data })}
         />
       )}
     </StockShell>

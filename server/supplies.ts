@@ -309,7 +309,12 @@ export function registerSupplyRoutes(router: Router) {
   router.post("/api/supplies", isAuthenticated, async (req, res) => {
     try {
       const clientId = getClientId(req);
-      const { name, category, subcategory, unitOfMeasure, supplier, supplierContact, priceDescription, moq, leadTime, reorderPoint, notes } = req.body;
+      const {
+        name, category, subcategory, unitOfMeasure,
+        supplier, supplierContact, priceDescription,
+        moq, leadTime, reorderPoint, notes,
+        moqStructured, moqUnit, caseRoundingRequired, unitsPerCase,
+      } = req.body;
 
       if (!name || !category) {
         return res.status(400).json({ message: "name and category are required" });
@@ -330,6 +335,10 @@ export function registerSupplyRoutes(router: Router) {
           leadTime: leadTime || null,
           reorderPoint: reorderPoint != null ? Number(reorderPoint) : null,
           notes: notes || null,
+          moqStructured: moqStructured != null ? Number(moqStructured) : null,
+          moqUnit: moqUnit || null,
+          caseRoundingRequired: !!caseRoundingRequired,
+          unitsPerCase: unitsPerCase != null ? Number(unitsPerCase) : null,
         })
         .returning();
 
