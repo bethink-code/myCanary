@@ -138,7 +138,11 @@ var products = pgTable("products", {
   clientId: integer("client_id").references(() => clients.id).notNull(),
   skuCode: varchar("sku_code", { length: 50 }).notNull(),
   productName: varchar("product_name", { length: 255 }).notNull(),
+  // brand = who owns the product (THH or NP). range = product family line
+  // (HH = Herbal Horse, HP = Herbal Pet, NP = Nutriphase). Decoupling these
+  // lets THH-owned products live in either the HH or HP range.
   brand: varchar("brand", { length: 10 }).notNull(),
+  range: varchar("range", { length: 10 }),
   category: varchar("category", { length: 50 }).notNull(),
   packSizeG: integer("pack_size_g"),
   unitsPerCase: integer("units_per_case"),
@@ -778,6 +782,7 @@ function registerRoutes(router2) {
   const updateProductSchema = z.object({
     productName: z.string().min(1).max(255).optional(),
     brand: z.string().max(10).optional(),
+    range: z.string().max(10).nullable().optional(),
     category: z.string().max(50).optional(),
     packSizeG: z.number().int().positive().nullable().optional(),
     unitsPerCase: z.number().int().positive().nullable().optional(),
@@ -827,6 +832,7 @@ function registerRoutes(router2) {
     skuCode: z.string().min(1).max(50),
     productName: z.string().min(1).max(255),
     brand: z.string().min(1).max(10),
+    range: z.string().max(10).nullable().optional(),
     category: z.string().min(1).max(50),
     packSizeG: z.number().int().positive().nullable().optional(),
     unitsPerCase: z.number().int().positive().nullable().optional(),
@@ -859,6 +865,7 @@ function registerRoutes(router2) {
         skuCode: parsed.data.skuCode,
         productName: parsed.data.productName,
         brand: parsed.data.brand,
+        range: parsed.data.range ?? null,
         category: parsed.data.category,
         packSizeG: parsed.data.packSizeG ?? null,
         unitsPerCase: parsed.data.unitsPerCase ?? null,
