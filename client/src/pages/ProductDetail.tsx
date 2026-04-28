@@ -297,6 +297,69 @@ export default function ProductDetail() {
           </div>
         )}
       </div>
+
+      <ProductBomSection skuCode={skuCode!} />
+    </div>
+  );
+}
+
+interface ProductBomMapping {
+  id: number;
+  supplyId: number;
+  skuCode: string;
+  quantityPerUnit: number;
+  notes: string | null;
+  supplyName: string | null;
+  supplyUnit: string | null;
+}
+
+function ProductBomSection({ skuCode }: { skuCode: string }) {
+  const { data: mappings = [], isLoading } = useQuery<ProductBomMapping[]>({
+    queryKey: ["product-bom", skuCode],
+    queryFn: () => apiRequest(`/api/supply-mappings/by-product/${skuCode}`),
+  });
+
+  return (
+    <div className="bg-white rounded-xl border border-border overflow-hidden">
+      <div className="px-6 py-4 border-b border-border flex items-center justify-between">
+        <h2 className="font-semibold">Bill of materials</h2>
+        <Link
+          to="/settings?tab=bom-matrix"
+          className="text-xs text-primary hover:underline"
+        >
+          Edit in Settings
+        </Link>
+      </div>
+      {isLoading ? (
+        <div className="px-6 py-8 flex justify-center">
+          <div className="animate-spin w-5 h-5 border-2 border-primary border-t-transparent rounded-full" />
+        </div>
+      ) : mappings.length === 0 ? (
+        <div className="px-6 py-8 text-center text-slate-500 text-sm">
+          No supplies mapped to this SKU yet.
+        </div>
+      ) : (
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50">
+            <tr>
+              <th className="text-left px-4 py-3 font-medium text-slate-600">Supply</th>
+              <th className="text-right px-4 py-3 font-medium text-slate-600">Qty per unit</th>
+              <th className="text-left px-4 py-3 font-medium text-slate-600">Unit</th>
+              <th className="text-left px-4 py-3 font-medium text-slate-600">Notes</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {mappings.map((m) => (
+              <tr key={m.id}>
+                <td className="px-4 py-3">{m.supplyName ?? `Supply #${m.supplyId}`}</td>
+                <td className="px-4 py-3 text-right font-mono">{m.quantityPerUnit}</td>
+                <td className="px-4 py-3 text-slate-500">{m.supplyUnit ?? "—"}</td>
+                <td className="px-4 py-3 text-slate-500 text-xs">{m.notes ?? "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }

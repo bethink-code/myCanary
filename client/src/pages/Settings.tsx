@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams, Link } from "react-router-dom";
 import { apiRequest } from "../lib/queryClient";
+import BomEditModal from "../components/BomEditModal";
 
 function getInitialTab(): string {
   const params = new URLSearchParams(window.location.search);
@@ -15,6 +16,7 @@ export default function Settings() {
   const tabs = [
     { id: "products", label: "Products & SKUs" },
     { id: "manufacturers", label: "Manufacturers" },
+    { id: "bom-matrix", label: "BOM Matrix" },
     { id: "moq-rules", label: "MOQ Rules" },
     { id: "system", label: "System Settings" },
   ];
@@ -56,6 +58,7 @@ export default function Settings() {
 
       {activeTab === "products" && <ProductsTab />}
       {activeTab === "manufacturers" && <ManufacturersTab />}
+      {activeTab === "bom-matrix" && <BomMatrixTab />}
       {activeTab === "moq-rules" && <MoqRulesTab />}
       {activeTab === "system" && <SystemSettingsTab />}
     </div>
@@ -811,6 +814,163 @@ function EditManufacturerModal({
     </div>
   );
 }
+
+// ============================================================================
+// BOM Matrix tab
+// ============================================================================
+
+interface BomCell {
+  id: number;
+  supplyId: number;
+  skuCode: string;
+  quantityPerUnit: number;
+  notes: string | null;
+}
+
+function BomMatrixTab() {
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState<BomCell | { supplyId?: number; skuCode?: string } | null>(null);
+
+  const { data: matrix = [], isLoading: matrixLoading } = useQuery<BomCell[]>({
+    queryKey: ["bom-matrix"],
+    queryFn: () => apiRequest("/api/supply-mappings/matrix"),
+  });
+
+  const { data: supplies = [], isLoading: suppliesLoading } = useQuery<any[]>({
+    queryKey: ["supplies"],
+    queryFn: () => apiRequest("/api/supplies"),
+  });
+
+  const { data: products = [], isLoading: productsLoading } = useQuery<any[]>({
+    queryKey: ["products"],
+    queryFn: () => apiRequest("/api/products"),
+  });
+
+  const upsertMutation = useMutation({
+    mutationFn: (data: any) =>
+      apiRequest("/api/supply-mappings", { method: "POST", body: JSON.stringify(data) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["bom-matrix"] });
+      setEditing(null);
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => apiRequest(`/api/supply-mappings/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["bom-matrix"] });
+      setEditing(null);
+    },
+  });
+
+  if (matrixLoading || suppliesLoading || productsLoading) {
+    return (
+      <div className="flex justify-center py-8">
+        <div className="animate-spin w-6 h-6 border-2 border-primary border-t-transparent rounded-full" />
+      </div>
+    );
+  }
+
+  // Map for quick cell lookup: `${supplyId}::${skuCode}` → BomCell
+  const cellByKey = new Map<string, BomCell>();
+  for (const c of matrix) cellByKey.set(`${c.supplyId}::${c.skuCode}`, c);
+
+  // Active SKUs only (archived hidden by default in /api/products)
+  const activeProducts = products.filter((p: any) => p.isActive !== false);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-4">
+        <p className="text-sm text-slate-500 max-w-2xl">
+          Bill of materials: how much of each supply goes into each finished SKU. Click a cell
+          to set a value, click an existing cell to edit. The PO drafting calc uses this matrix
+          to translate "manufacture 500 of SKU X" into the supplies needed.
+        </p>
+        <button
+          onClick={() => setEditing({})}
+          className="shrink-0 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90"
+        >
+          New mapping
+        </button>
+      </div>
+
+      {supplies.length === 0 ? (
+        <div className="bg-white rounded-xl border border-border p-12 text-center text-sm text-slate-400">
+          No supplies tracked yet. Import supplies first.
+        </div>
+      ) : activeProducts.length === 0 ? (
+        <div className="bg-white rounded-xl border border-border p-12 text-center text-sm text-slate-400">
+          No active products yet. Add products first.
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl border border-border overflow-auto">
+          <table className="text-sm">
+            <thead className="bg-slate-50">
+              <tr>
+                <th className="text-left px-3 py-2 font-medium text-slate-600 sticky left-0 bg-slate-50 z-10 min-w-[180px]">
+                  Supply
+                </th>
+                {activeProducts.map((p: any) => (
+                  <th key={p.skuCode} className="text-center px-3 py-2 font-medium text-slate-600 font-mono whitespace-nowrap">
+                    {p.skuCode}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {supplies.map((s: any) => (
+                <tr key={s.id} className="hover:bg-slate-50/50">
+                  <td className="px-3 py-2 sticky left-0 bg-white z-10 group-hover:bg-slate-50/50">
+                    <div className="font-medium text-slate-900">{s.name}</div>
+                    {s.unitOfMeasure && (
+                      <div className="text-xs text-slate-400">({s.unitOfMeasure})</div>
+                    )}
+                  </td>
+                  {activeProducts.map((p: any) => {
+                    const cell = cellByKey.get(`${s.id}::${p.skuCode}`);
+                    return (
+                      <td
+                        key={p.skuCode}
+                        onClick={() =>
+                          setEditing(cell ?? { supplyId: s.id, skuCode: p.skuCode })
+                        }
+                        className={`px-3 py-2 text-center cursor-pointer font-mono ${
+                          cell ? "text-slate-900 font-medium hover:bg-blue-50" : "text-slate-300 hover:bg-slate-100"
+                        }`}
+                      >
+                        {cell ? cell.quantityPerUnit : "—"}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {editing !== null && (
+        <BomEditModal
+          mapping={editing}
+          supplies={supplies}
+          products={activeProducts}
+          saving={upsertMutation.isPending || deleteMutation.isPending}
+          onClose={() => setEditing(null)}
+          onSave={(data) => upsertMutation.mutate(data)}
+          onDelete={
+            "id" in editing && editing.id
+              ? () => deleteMutation.mutate(editing.id as number)
+              : undefined
+          }
+        />
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// MOQ Rules tab
+// ============================================================================
 
 interface BundlingRule {
   id: number;

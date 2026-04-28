@@ -13,6 +13,7 @@ import { registerSupplyRoutes } from "./supplies";
 import { registerMovementRoutes } from "./movements/routes";
 import { registerSalesSummaryRoutes } from "./salesSummary";
 import { registerMoqRuleRoutes } from "./moqRules";
+import { registerBomMappingRoutes } from "./bomMappings";
 import { clientContext } from "./clientContext";
 
 const app = express();
@@ -127,6 +128,7 @@ registerSupplyRoutes(router);
 registerMovementRoutes(router);
 registerSalesSummaryRoutes(router);
 registerMoqRuleRoutes(router);
+registerBomMappingRoutes(router);
 app.use(router);
 
 // ─── Error Handler ─────────────────────────────────────

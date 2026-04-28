@@ -180,55 +180,59 @@ export default function Supplies() {
 
                       {isExpanded && (
                         <tr key={`${supply.id}-detail`}>
-                          <td colSpan={9} className="bg-slate-50 px-6 py-4">
-                            <div className="flex items-center justify-between mb-3">
-                              <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                                Recent transactions
-                              </h4>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setMovementTarget(supply);
-                                }}
-                                className="text-xs px-3 py-1.5 bg-primary text-primary-foreground rounded-md font-medium"
-                              >
-                                Record movement
-                              </button>
-                            </div>
-                            {!detail ? (
-                              <div className="flex justify-center py-4">
-                                <div className="animate-spin w-5 h-5 border-2 border-primary border-t-transparent rounded-full" />
+                          <td colSpan={9} className="bg-slate-50 px-6 py-4 space-y-4">
+                            <SupplyUsedInList supplyId={supply.id} />
+
+                            <div>
+                              <div className="flex items-center justify-between mb-2">
+                                <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                                  Recent transactions
+                                </h4>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setMovementTarget(supply);
+                                  }}
+                                  className="text-xs px-3 py-1.5 bg-primary text-primary-foreground rounded-md font-medium"
+                                >
+                                  Record movement
+                                </button>
                               </div>
-                            ) : detail.transactions.length === 0 ? (
-                              <p className="text-sm text-slate-400">No transactions recorded yet.</p>
-                            ) : (
-                              <table className="w-full text-xs">
-                                <thead>
-                                  <tr className="text-left text-slate-500">
-                                    <th className="pb-2 font-medium">Date</th>
-                                    <th className="pb-2 font-medium">Type</th>
-                                    <th className="pb-2 font-medium">Location</th>
-                                    <th className="pb-2 font-medium text-right">Qty</th>
-                                    <th className="pb-2 font-medium">Reference</th>
-                                    <th className="pb-2 font-medium">Notes</th>
-                                  </tr>
-                                </thead>
-                                <tbody className="divide-y divide-border">
-                                  {detail.transactions.map((tx) => (
-                                    <tr key={tx.id}>
-                                      <td className="py-2 text-slate-700">{formatDateShort(tx.transactionDate)}</td>
-                                      <td className="py-2 text-slate-600">{tx.transactionType}</td>
-                                      <td className="py-2 text-slate-600">{tx.location}</td>
-                                      <td className="py-2 text-right font-mono">
-                                        {tx.quantity > 0 ? "+" : ""}{tx.quantity.toLocaleString()}
-                                      </td>
-                                      <td className="py-2 text-slate-600">{tx.reference ?? "—"}</td>
-                                      <td className="py-2 text-slate-500">{tx.notes ?? "—"}</td>
+                              {!detail ? (
+                                <div className="flex justify-center py-4">
+                                  <div className="animate-spin w-5 h-5 border-2 border-primary border-t-transparent rounded-full" />
+                                </div>
+                              ) : detail.transactions.length === 0 ? (
+                                <p className="text-sm text-slate-400">No transactions recorded yet.</p>
+                              ) : (
+                                <table className="w-full text-xs">
+                                  <thead>
+                                    <tr className="text-left text-slate-500">
+                                      <th className="pb-2 font-medium">Date</th>
+                                      <th className="pb-2 font-medium">Type</th>
+                                      <th className="pb-2 font-medium">Location</th>
+                                      <th className="pb-2 font-medium text-right">Qty</th>
+                                      <th className="pb-2 font-medium">Reference</th>
+                                      <th className="pb-2 font-medium">Notes</th>
                                     </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            )}
+                                  </thead>
+                                  <tbody className="divide-y divide-border">
+                                    {detail.transactions.map((tx) => (
+                                      <tr key={tx.id}>
+                                        <td className="py-2 text-slate-700">{formatDateShort(tx.transactionDate)}</td>
+                                        <td className="py-2 text-slate-600">{tx.transactionType}</td>
+                                        <td className="py-2 text-slate-600">{tx.location}</td>
+                                        <td className="py-2 text-right font-mono">
+                                          {tx.quantity > 0 ? "+" : ""}{tx.quantity.toLocaleString()}
+                                        </td>
+                                        <td className="py-2 text-slate-600">{tx.reference ?? "—"}</td>
+                                        <td className="py-2 text-slate-500">{tx.notes ?? "—"}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       )}
@@ -260,5 +264,50 @@ export default function Supplies() {
         />
       )}
     </StockShell>
+  );
+}
+
+interface UsedInMapping {
+  id: number;
+  supplyId: number;
+  skuCode: string;
+  quantityPerUnit: number;
+  notes: string | null;
+}
+
+function SupplyUsedInList({ supplyId }: { supplyId: number }) {
+  const { data: mappings = [], isLoading } = useQuery<UsedInMapping[]>({
+    queryKey: ["supply-mappings-by-supply", supplyId],
+    queryFn: () => apiRequest(`/api/supply-mappings/by-supply/${supplyId}`),
+  });
+
+  return (
+    <div>
+      <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+        Used in (BOM)
+      </h4>
+      {isLoading ? (
+        <div className="flex justify-start py-2">
+          <div className="animate-spin w-4 h-4 border-2 border-primary border-t-transparent rounded-full" />
+        </div>
+      ) : mappings.length === 0 ? (
+        <p className="text-xs text-slate-400">
+          Not yet mapped to any product. Add a BOM mapping in Settings → BOM Matrix.
+        </p>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {mappings.map((m) => (
+            <span
+              key={m.id}
+              className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-white border border-border text-xs"
+            >
+              <span className="font-mono text-slate-700">{m.skuCode}</span>
+              <span className="text-slate-400">·</span>
+              <span className="font-mono text-slate-500">{m.quantityPerUnit}/unit</span>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
