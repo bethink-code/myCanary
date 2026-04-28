@@ -346,10 +346,16 @@ var supplyProductMappings = pgTable("supply_product_mappings", {
   clientId: integer("client_id").references(() => clients.id).notNull(),
   supplyId: integer("supply_id").references(() => supplies.id).notNull(),
   skuCode: varchar("sku_code", { length: 50 }).notNull(),
-  quantityPerUnit: integer("quantity_per_unit").default(1).notNull(),
-  // how many of this supply per unit of finished product
+  quantityPerUnit: numeric("quantity_per_unit", { precision: 12, scale: 4 }).default("1").notNull(),
+  // BOM ratio: how many of this supply per unit of finished product
   notes: text("notes")
-});
+}, (table) => [
+  uniqueIndex("supply_product_mappings_client_supply_sku_idx").on(
+    table.clientId,
+    table.supplyId,
+    table.skuCode
+  )
+]);
 var moqBundlingRules = pgTable("moq_bundling_rules", {
   id: serial("id").primaryKey(),
   clientId: integer("client_id").references(() => clients.id).notNull(),
