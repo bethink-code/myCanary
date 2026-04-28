@@ -29,6 +29,7 @@ __export(schema_exports, {
   clients: () => clients,
   invitedUsers: () => invitedUsers,
   manufacturers: () => manufacturers,
+  moqBundlingRules: () => moqBundlingRules,
   notifications: () => notifications,
   orderLines: () => orderLines,
   orders: () => orders,
@@ -56,6 +57,7 @@ import {
   varchar,
   date,
   json,
+  numeric,
   uniqueIndex
 } from "drizzle-orm/pg-core";
 var clients = pgTable("clients", {
@@ -124,7 +126,12 @@ var manufacturers = pgTable("manufacturers", {
   standardLeadTimeDays: integer("standard_lead_time_days").default(40).notNull(),
   maxLeadTimeDays: integer("max_lead_time_days").default(60).notNull(),
   poFormatNotes: text("po_format_notes"),
-  moqNotes: text("moq_notes")
+  moqNotes: text("moq_notes"),
+  // free-text colour; structured rules below
+  minOrderValueZar: integer("min_order_value_zar"),
+  // null = no minimum
+  orderFrequencyCapDays: integer("order_frequency_cap_days")
+  // null = no cap; e.g. 60 = max 1 PO per 60 days
 });
 var products = pgTable("products", {
   id: serial("id").primaryKey(),
@@ -143,6 +150,10 @@ var products = pgTable("products", {
   reorderPointOverride: integer("reorder_point_override"),
   weightKg: integer("weight_kg"),
   notes: text("notes"),
+  caseRoundingRequired: boolean("case_rounding_required").default(false).notNull(),
+  // when true, PO qty rounds up to nearest unitsPerCase
+  minOrderQty: integer("min_order_qty"),
+  // null = no per-product MOQ
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
 }, (table) => [
   uniqueIndex("products_client_sku_idx").on(table.clientId, table.skuCode)
@@ -298,7 +309,13 @@ var supplies = pgTable("supplies", {
   priceDescription: varchar("price_description", { length: 255 }),
   // text: "R110 for 10kg", "USD 0.66"
   moq: varchar("moq", { length: 100 }),
-  // "10kg", "1000", "10000"
+  // free-text colour: "10kg", "1000". Structured below.
+  moqStructured: integer("moq_structured"),
+  // numeric MOQ in unitOfMeasure
+  moqUnit: varchar("moq_unit", { length: 50 }),
+  // optional override; defaults to unitOfMeasure for display
+  caseRoundingRequired: boolean("case_rounding_required").default(false).notNull(),
+  unitsPerCase: integer("units_per_case"),
   leadTime: varchar("lead_time", { length: 100 }),
   // "3 months", "2 weeks", "8 weeks"
   reorderPoint: integer("reorder_point"),
@@ -332,6 +349,18 @@ var supplyProductMappings = pgTable("supply_product_mappings", {
   quantityPerUnit: integer("quantity_per_unit").default(1).notNull(),
   // how many of this supply per unit of finished product
   notes: text("notes")
+});
+var moqBundlingRules = pgTable("moq_bundling_rules", {
+  id: serial("id").primaryKey(),
+  clientId: integer("client_id").references(() => clients.id).notNull(),
+  manufacturerId: integer("manufacturer_id").references(() => manufacturers.id),
+  // null = applies regardless of manufacturer
+  primarySkuCode: varchar("primary_sku_code", { length: 50 }).notNull(),
+  bundledSkuCode: varchar("bundled_sku_code", { length: 50 }).notNull(),
+  ratio: numeric("ratio", { precision: 8, scale: 4 }).default("1").notNull(),
+  // e.g. 1.0000 = always order 1:1; 0.5 = bundle is half the primary qty
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
 });
 var pnpProductMappings = pgTable("pnp_product_mappings", {
   id: serial("id").primaryKey(),
@@ -741,7 +770,9 @@ function registerRoutes(router2) {
     apBrandEquivalent: z.string().max(50).nullable().optional(),
     reorderPointOverride: z.number().int().positive().nullable().optional(),
     weightKg: z.number().int().positive().nullable().optional(),
-    notes: z.string().nullable().optional()
+    notes: z.string().nullable().optional(),
+    caseRoundingRequired: z.boolean().optional(),
+    minOrderQty: z.number().int().positive().nullable().optional()
   });
   router2.patch("/api/products/:skuCode", isAuthenticated, async (req, res) => {
     try {
@@ -832,7 +863,18 @@ function registerRoutes(router2) {
     try {
       const clientId = getClientId(req);
       const id = Number(req.params.id);
-      const { name, email, contactPerson, phone, standardLeadTimeDays, maxLeadTimeDays, poFormatNotes, moqNotes } = req.body;
+      const {
+        name,
+        email,
+        contactPerson,
+        phone,
+        standardLeadTimeDays,
+        maxLeadTimeDays,
+        poFormatNotes,
+        moqNotes,
+        minOrderValueZar,
+        orderFrequencyCapDays
+      } = req.body;
       const [updated] = await db.update(manufacturers).set({
         ...name !== void 0 && { name },
         ...email !== void 0 && { email },
@@ -841,7 +883,9 @@ function registerRoutes(router2) {
         ...standardLeadTimeDays !== void 0 && { standardLeadTimeDays: Number(standardLeadTimeDays) },
         ...maxLeadTimeDays !== void 0 && { maxLeadTimeDays: Number(maxLeadTimeDays) },
         ...poFormatNotes !== void 0 && { poFormatNotes },
-        ...moqNotes !== void 0 && { moqNotes }
+        ...moqNotes !== void 0 && { moqNotes },
+        ...minOrderValueZar !== void 0 && { minOrderValueZar: minOrderValueZar === null ? null : Number(minOrderValueZar) },
+        ...orderFrequencyCapDays !== void 0 && { orderFrequencyCapDays: orderFrequencyCapDays === null ? null : Number(orderFrequencyCapDays) }
       }).where(and(eq2(manufacturers.clientId, clientId), eq2(manufacturers.id, id))).returning();
       if (!updated) return res.status(404).json({ message: "Manufacturer not found" });
       logAudit(req, "MANUFACTURER_UPDATED", {
@@ -3686,7 +3730,24 @@ function registerSupplyRoutes(router2) {
       if (!existing) {
         return res.status(404).json({ message: "Supply not found" });
       }
-      const { name, category, subcategory, unitOfMeasure, supplier, supplierContact, priceDescription, moq, leadTime, reorderPoint, isActive, notes } = req.body;
+      const {
+        name,
+        category,
+        subcategory,
+        unitOfMeasure,
+        supplier,
+        supplierContact,
+        priceDescription,
+        moq,
+        leadTime,
+        reorderPoint,
+        isActive,
+        notes,
+        moqStructured,
+        moqUnit,
+        caseRoundingRequired,
+        unitsPerCase
+      } = req.body;
       const updates = {};
       if (name !== void 0) updates.name = name;
       if (category !== void 0) updates.category = category;
@@ -3700,6 +3761,10 @@ function registerSupplyRoutes(router2) {
       if (reorderPoint !== void 0) updates.reorderPoint = reorderPoint != null ? Number(reorderPoint) : null;
       if (isActive !== void 0) updates.isActive = isActive;
       if (notes !== void 0) updates.notes = notes || null;
+      if (moqStructured !== void 0) updates.moqStructured = moqStructured != null ? Number(moqStructured) : null;
+      if (moqUnit !== void 0) updates.moqUnit = moqUnit || null;
+      if (caseRoundingRequired !== void 0) updates.caseRoundingRequired = !!caseRoundingRequired;
+      if (unitsPerCase !== void 0) updates.unitsPerCase = unitsPerCase != null ? Number(unitsPerCase) : null;
       const [updated] = await db.update(supplies).set(updates).where(and6(eq7(supplies.id, supplyId), eq7(supplies.clientId, clientId))).returning();
       logAudit(req, "SUPPLY_UPDATED", {
         resourceType: "Supply",
