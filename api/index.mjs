@@ -38,7 +38,6 @@ __export(schema_exports, {
   products: () => products,
   purchaseOrderLines: () => purchaseOrderLines,
   purchaseOrders: () => purchaseOrders,
-  sessions: () => sessions,
   stockTransactions: () => stockTransactions,
   supplies: () => supplies,
   supplyProductMappings: () => supplyProductMappings,
@@ -69,11 +68,6 @@ var clients = pgTable("clients", {
   setupProgress: json("setup_progress"),
   // { products, suppliers, openingStock, reorderPoints, salesData }
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
-});
-var sessions = pgTable("sessions", {
-  sid: varchar("sid", { length: 255 }).primaryKey(),
-  sess: json("sess").notNull(),
-  expire: timestamp("expire", { withTimezone: true }).notNull()
 });
 var users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -197,6 +191,7 @@ var purchaseOrders = pgTable("purchase_orders", {
   approvedAt: timestamp("approved_at", { withTimezone: true }),
   sentAt: timestamp("sent_at", { withTimezone: true }),
   expectedDeliveryDate: date("expected_delivery_date"),
+  deliveredAt: timestamp("delivered_at", { withTimezone: true }),
   notes: text("notes"),
   draftEmailBody: text("draft_email_body"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull()
@@ -316,10 +311,12 @@ var supplyTransactions = pgTable("supply_transactions", {
   clientId: integer("client_id").references(() => clients.id).notNull(),
   supplyId: integer("supply_id").references(() => supplies.id).notNull(),
   transactionType: varchar("transaction_type", { length: 30 }).notNull(),
-  // RECEIVED, SENT_TO_MANUFACTURER, ADJUSTMENT, WRITE_OFF
+  // RECEIVED, SENT_TO_MANUFACTURER, SUPPLY_TRANSFER, ADJUSTMENT, WRITE_OFF
   quantity: integer("quantity").notNull(),
   // positive for in, negative for out
   transactionDate: date("transaction_date").notNull(),
+  location: varchar("location", { length: 10 }).notNull().default("THH"),
+  // THH, Zinchar, NutriMed
   relatedPoId: integer("related_po_id").references(() => purchaseOrders.id),
   manufacturerName: varchar("manufacturer_name", { length: 255 }),
   reference: varchar("reference", { length: 255 }),
@@ -1561,8 +1558,10 @@ function registerRoutes(router2) {
         status: purchaseOrders.status,
         createdDate: purchaseOrders.createdDate,
         expectedDeliveryDate: purchaseOrders.expectedDeliveryDate,
+        deliveredAt: purchaseOrders.deliveredAt,
         lineCount: count(purchaseOrderLines.id),
-        totalUnits: sum(purchaseOrderLines.quantityOrdered)
+        totalUnits: sum(purchaseOrderLines.quantityOrdered),
+        skuSummary: sql2`STRING_AGG(DISTINCT ${purchaseOrderLines.skuCode}, ', ' ORDER BY ${purchaseOrderLines.skuCode})`
       }).from(purchaseOrders).leftJoin(manufacturers, eq2(purchaseOrders.manufacturerId, manufacturers.id)).leftJoin(purchaseOrderLines, eq2(purchaseOrders.id, purchaseOrderLines.poId)).where(eq2(purchaseOrders.clientId, clientId)).groupBy(purchaseOrders.id, manufacturers.name).orderBy(desc(purchaseOrders.createdDate));
       res.json(rows.map((r) => ({
         ...r,
@@ -1621,6 +1620,9 @@ function registerRoutes(router2) {
         if (mfr) {
           updates.expectedDeliveryDate = calcExpectedDeliveryDate(now, mfr.standardLeadTimeDays).toISOString().slice(0, 10);
         }
+      }
+      if (newStatus === "DELIVERED") {
+        updates.deliveredAt = /* @__PURE__ */ new Date();
       }
       const [updated] = await db.update(purchaseOrders).set(updates).where(and(eq2(purchaseOrders.id, poId), eq2(purchaseOrders.clientId, clientId))).returning();
       res.json({ ...updated, reference: `PO-${updated.id}` });
@@ -3193,7 +3195,254 @@ function registerOpeningBalanceRoutes(router2) {
 // server/supplies.ts
 import multer4 from "multer";
 import * as XLSX4 from "xlsx";
-import { eq as eq7, and as and6, desc as desc4, sum as sum3, sql as sql6 } from "drizzle-orm";
+import { eq as eq7, and as and6, desc as desc4, sql as sql6 } from "drizzle-orm";
+
+// shared/calculations/movements.ts
+var SUPPLY_LOCATIONS = ["THH", "Zinchar", "NutriMed"];
+function common(input) {
+  const errors = [];
+  if (!(typeof input.quantity === "number") || !Number.isFinite(input.quantity)) {
+    errors.push("quantity must be a number");
+  } else if (input.quantity <= 0) {
+    errors.push("quantity must be positive (direction is implied by movement type)");
+  }
+  if (!input.date || !/^\d{4}-\d{2}-\d{2}$/.test(input.date)) {
+    errors.push("date must be yyyy-mm-dd");
+  }
+  return errors;
+}
+function requireText(value, field) {
+  return typeof value === "string" && value.trim().length > 0 ? [] : [`${field} is required`];
+}
+function validateMovement(input) {
+  const errors = [];
+  errors.push(...common(input));
+  if (input.subjectKind === "product") {
+    errors.push(...requireText(input.skuCode, "skuCode"));
+    if (input.type === "TRANSFER") {
+      errors.push(...requireText(input.fromLocation, "fromLocation"));
+      errors.push(...requireText(input.toLocation, "toLocation"));
+      if (input.fromLocation === input.toLocation) errors.push("fromLocation and toLocation must differ");
+    } else {
+      errors.push(...requireText(input.location, "location"));
+    }
+    if (input.type === "DELIVERY_RECEIVED") {
+      errors.push(...requireText(input.batchNumber, "batchNumber"));
+      errors.push(...requireText(input.manufactureDate, "manufactureDate"));
+      errors.push(...requireText(input.expiryDate, "expiryDate"));
+    }
+    if (input.type === "ADJUSTMENT_IN" || input.type === "ADJUSTMENT_OUT") {
+      errors.push(...requireText(input.reasonText, "reasonText"));
+    }
+  } else {
+    if (!Number.isInteger(input.supplyId) || input.supplyId <= 0) {
+      errors.push("supplyId must be a positive integer");
+    }
+    if (input.type === "SUPPLY_TRANSFER" || input.type === "SUPPLY_SENT_TO_MANUFACTURER") {
+      errors.push(...requireText(input.fromLocation, "fromLocation"));
+      errors.push(...requireText(input.toLocation, "toLocation"));
+      if (input.fromLocation === input.toLocation) errors.push("fromLocation and toLocation must differ");
+      if (input.fromLocation && !SUPPLY_LOCATIONS.includes(input.fromLocation)) {
+        errors.push(`fromLocation must be one of ${SUPPLY_LOCATIONS.join(", ")}`);
+      }
+      if (input.toLocation && !SUPPLY_LOCATIONS.includes(input.toLocation)) {
+        errors.push(`toLocation must be one of ${SUPPLY_LOCATIONS.join(", ")}`);
+      }
+    } else {
+      const loc = input.location;
+      errors.push(...requireText(loc, "location"));
+      if (loc && !SUPPLY_LOCATIONS.includes(loc)) {
+        errors.push(`location must be one of ${SUPPLY_LOCATIONS.join(", ")}`);
+      }
+    }
+    if (input.type === "ADJUSTMENT_IN" || input.type === "ADJUSTMENT_OUT") {
+      errors.push(...requireText(input.reasonText, "reasonText"));
+    }
+  }
+  return errors;
+}
+function movementToLedger(input) {
+  const effect = { stockRows: [], supplyRows: [], batchRow: null };
+  if (input.subjectKind === "product") {
+    switch (input.type) {
+      case "OPENING_BALANCE":
+        effect.stockRows.push({
+          skuCode: input.skuCode,
+          stockLocation: input.location,
+          transactionType: "OPENING_BALANCE",
+          quantity: input.quantity,
+          transactionDate: input.date,
+          reference: "opening balance"
+        });
+        break;
+      case "DELIVERY_RECEIVED":
+        effect.batchRow = {
+          skuCode: input.skuCode,
+          sizeVariant: input.sizeVariant ?? "",
+          stockLocation: input.location,
+          batchNumber: input.batchNumber,
+          manufactureDate: input.manufactureDate,
+          expiryDate: input.expiryDate,
+          initialQuantity: input.quantity,
+          receivedDate: input.date,
+          deliveryNoteRef: input.deliveryNoteRef ?? null
+        };
+        effect.stockRows.push({
+          skuCode: input.skuCode,
+          stockLocation: input.location,
+          transactionType: "DELIVERY_IN",
+          quantity: input.quantity,
+          transactionDate: input.date,
+          reference: input.deliveryNoteRef ?? null
+        });
+        break;
+      case "ADJUSTMENT_IN":
+        effect.stockRows.push({
+          skuCode: input.skuCode,
+          stockLocation: input.location,
+          transactionType: "ADJUSTMENT",
+          quantity: input.quantity,
+          transactionDate: input.date,
+          notes: input.reasonText
+        });
+        break;
+      case "ADJUSTMENT_OUT":
+        effect.stockRows.push({
+          skuCode: input.skuCode,
+          stockLocation: input.location,
+          transactionType: "ADJUSTMENT",
+          quantity: -input.quantity,
+          transactionDate: input.date,
+          notes: input.reasonText
+        });
+        break;
+      case "TRANSFER": {
+        const from = input.fromLocation;
+        const to = input.toLocation;
+        const ttype = `TRANSFER_${from}_TO_${to}`;
+        effect.stockRows.push({
+          skuCode: input.skuCode,
+          stockLocation: from,
+          transactionType: ttype,
+          quantity: -input.quantity,
+          transactionDate: input.date
+        });
+        effect.stockRows.push({
+          skuCode: input.skuCode,
+          stockLocation: to,
+          transactionType: ttype,
+          quantity: input.quantity,
+          transactionDate: input.date
+        });
+        break;
+      }
+      case "SALES_OUT":
+        effect.stockRows.push({
+          skuCode: input.skuCode,
+          stockLocation: input.location,
+          transactionType: "SALES_OUT",
+          quantity: -input.quantity,
+          transactionDate: input.date,
+          reference: input.invoiceRef ?? null,
+          channel: input.channel ?? null,
+          notes: input.reasonText ?? null
+        });
+        break;
+    }
+  } else {
+    switch (input.type) {
+      case "OPENING_BALANCE":
+        effect.supplyRows.push({
+          supplyId: input.supplyId,
+          location: input.location,
+          transactionType: "RECEIVED",
+          quantity: input.quantity,
+          transactionDate: input.date,
+          notes: "opening balance"
+        });
+        break;
+      case "DELIVERY_RECEIVED":
+        effect.supplyRows.push({
+          supplyId: input.supplyId,
+          location: input.location,
+          transactionType: "RECEIVED",
+          quantity: input.quantity,
+          transactionDate: input.date,
+          reference: input.reference ?? null
+        });
+        break;
+      case "ADJUSTMENT_IN":
+        effect.supplyRows.push({
+          supplyId: input.supplyId,
+          location: input.location,
+          transactionType: "ADJUSTMENT",
+          quantity: input.quantity,
+          transactionDate: input.date,
+          notes: input.reasonText
+        });
+        break;
+      case "ADJUSTMENT_OUT":
+        effect.supplyRows.push({
+          supplyId: input.supplyId,
+          location: input.location,
+          transactionType: "ADJUSTMENT",
+          quantity: -input.quantity,
+          transactionDate: input.date,
+          notes: input.reasonText
+        });
+        break;
+      case "SUPPLY_TRANSFER": {
+        const ttype = `SUPPLY_TRANSFER_${input.fromLocation}_TO_${input.toLocation}`;
+        effect.supplyRows.push({
+          supplyId: input.supplyId,
+          location: input.fromLocation,
+          transactionType: ttype,
+          quantity: -input.quantity,
+          transactionDate: input.date
+        });
+        effect.supplyRows.push({
+          supplyId: input.supplyId,
+          location: input.toLocation,
+          transactionType: ttype,
+          quantity: input.quantity,
+          transactionDate: input.date
+        });
+        break;
+      }
+      case "SUPPLY_SENT_TO_MANUFACTURER":
+        effect.supplyRows.push({
+          supplyId: input.supplyId,
+          location: input.fromLocation,
+          transactionType: "SENT_TO_MANUFACTURER",
+          quantity: -input.quantity,
+          transactionDate: input.date,
+          manufacturerName: input.manufacturerName ?? null,
+          reference: input.reference ?? null,
+          relatedPoId: input.relatedPoId ?? null
+        });
+        effect.supplyRows.push({
+          supplyId: input.supplyId,
+          location: input.toLocation,
+          transactionType: "SENT_TO_MANUFACTURER",
+          quantity: input.quantity,
+          transactionDate: input.date,
+          manufacturerName: input.manufacturerName ?? null,
+          reference: input.reference ?? null,
+          relatedPoId: input.relatedPoId ?? null
+        });
+        break;
+    }
+  }
+  return effect;
+}
+
+// server/supplies.ts
+function emptyByLocation() {
+  return SUPPLY_LOCATIONS.reduce((acc, loc) => {
+    acc[loc] = 0;
+    return acc;
+  }, {});
+}
 var upload4 = multer4({ storage: multer4.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 function parseLeadingNumber(val) {
   if (val == null) return 0;
@@ -3205,14 +3454,35 @@ function parseLeadingNumber(val) {
   const n = parseFloat(match[0]);
   return isNaN(n) ? 0 : n;
 }
-async function getCurrentStock(clientId, supplyId) {
-  const row = await db.select({ total: sum3(supplyTransactions.quantity).mapWith(Number) }).from(supplyTransactions).where(
+async function getCurrentStockByLocation(clientId, supplyId) {
+  const row = await db.select({
+    thh: sql6`COALESCE(SUM(CASE WHEN ${supplyTransactions.location} = 'THH' THEN ${supplyTransactions.quantity} ELSE 0 END), 0)`.mapWith(Number),
+    zinchar: sql6`COALESCE(SUM(CASE WHEN ${supplyTransactions.location} = 'Zinchar' THEN ${supplyTransactions.quantity} ELSE 0 END), 0)`.mapWith(Number),
+    nutrimed: sql6`COALESCE(SUM(CASE WHEN ${supplyTransactions.location} = 'NutriMed' THEN ${supplyTransactions.quantity} ELSE 0 END), 0)`.mapWith(Number)
+  }).from(supplyTransactions).where(
     and6(
       eq7(supplyTransactions.clientId, clientId),
       eq7(supplyTransactions.supplyId, supplyId)
     )
   );
-  return row[0]?.total ?? 0;
+  return {
+    THH: row[0]?.thh ?? 0,
+    Zinchar: row[0]?.zinchar ?? 0,
+    NutriMed: row[0]?.nutrimed ?? 0
+  };
+}
+async function getAllSuppliesByLocation(clientId) {
+  const rows = await db.select({
+    supplyId: supplyTransactions.supplyId,
+    thh: sql6`COALESCE(SUM(CASE WHEN ${supplyTransactions.location} = 'THH' THEN ${supplyTransactions.quantity} ELSE 0 END), 0)`.mapWith(Number),
+    zinchar: sql6`COALESCE(SUM(CASE WHEN ${supplyTransactions.location} = 'Zinchar' THEN ${supplyTransactions.quantity} ELSE 0 END), 0)`.mapWith(Number),
+    nutrimed: sql6`COALESCE(SUM(CASE WHEN ${supplyTransactions.location} = 'NutriMed' THEN ${supplyTransactions.quantity} ELSE 0 END), 0)`.mapWith(Number)
+  }).from(supplyTransactions).where(eq7(supplyTransactions.clientId, clientId)).groupBy(supplyTransactions.supplyId);
+  const map = /* @__PURE__ */ new Map();
+  for (const r of rows) {
+    map.set(r.supplyId, { THH: r.thh, Zinchar: r.zinchar, NutriMed: r.nutrimed });
+  }
+  return map;
 }
 var RAW_MATERIALS_SKIP = [
   "RAW MATERIALS",
@@ -3336,16 +3606,15 @@ function registerSupplyRoutes(router2) {
         reorderPoint: supplies.reorderPoint,
         isActive: supplies.isActive,
         notes: supplies.notes,
-        createdAt: supplies.createdAt,
-        currentStock: sql6`COALESCE(SUM(${supplyTransactions.quantity}), 0)`.mapWith(Number)
-      }).from(supplies).leftJoin(
-        supplyTransactions,
-        and6(
-          eq7(supplyTransactions.supplyId, supplies.id),
-          eq7(supplyTransactions.clientId, supplies.clientId)
-        )
-      ).where(eq7(supplies.clientId, clientId)).groupBy(supplies.id).orderBy(supplies.name);
-      res.json(rows);
+        createdAt: supplies.createdAt
+      }).from(supplies).where(eq7(supplies.clientId, clientId)).orderBy(supplies.name);
+      const byLocationMap = await getAllSuppliesByLocation(clientId);
+      const enriched = rows.map((r) => {
+        const byLocation = byLocationMap.get(r.id) ?? emptyByLocation();
+        const currentStock = byLocation.THH + byLocation.Zinchar + byLocation.NutriMed;
+        return { ...r, currentStock, byLocation };
+      });
+      res.json(enriched);
     } catch (err) {
       res.status(500).json({ message: "Failed to fetch supplies", error: err.message });
     }
@@ -3361,14 +3630,15 @@ function registerSupplyRoutes(router2) {
       if (!supply) {
         return res.status(404).json({ message: "Supply not found" });
       }
-      const currentStock = await getCurrentStock(clientId, supplyId);
+      const byLocation = await getCurrentStockByLocation(clientId, supplyId);
+      const currentStock = byLocation.THH + byLocation.Zinchar + byLocation.NutriMed;
       const transactions = await db.select().from(supplyTransactions).where(
         and6(
           eq7(supplyTransactions.clientId, clientId),
           eq7(supplyTransactions.supplyId, supplyId)
         )
       ).orderBy(desc4(supplyTransactions.createdAt)).limit(50);
-      res.json({ ...supply, currentStock, transactions });
+      res.json({ ...supply, currentStock, byLocation, transactions });
     } catch (err) {
       res.status(500).json({ message: "Failed to fetch supply detail", error: err.message });
     }
@@ -3443,137 +3713,6 @@ function registerSupplyRoutes(router2) {
       res.status(500).json({ message: "Failed to update supply", error: err.message });
     }
   });
-  router2.post("/api/supplies/:id/receive", isAuthenticated, async (req, res) => {
-    try {
-      const clientId = getClientId(req);
-      const supplyId = parseInt(req.params.id, 10);
-      if (isNaN(supplyId)) {
-        return res.status(400).json({ message: "Invalid supply ID" });
-      }
-      const { quantity, reference, notes, transactionDate } = req.body;
-      if (!quantity || quantity <= 0) {
-        return res.status(400).json({ message: "quantity must be a positive number" });
-      }
-      const [supply] = await db.select().from(supplies).where(and6(eq7(supplies.id, supplyId), eq7(supplies.clientId, clientId)));
-      if (!supply) {
-        return res.status(404).json({ message: "Supply not found" });
-      }
-      const user = req.user;
-      const txnDate = transactionDate || (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
-      const [txn] = await db.insert(supplyTransactions).values({
-        clientId,
-        supplyId,
-        transactionType: "RECEIVED",
-        quantity: Math.abs(Math.round(quantity)),
-        transactionDate: txnDate,
-        reference: reference || null,
-        notes: notes || null,
-        createdBy: user?.id ?? null
-      }).returning();
-      logAudit(req, "SUPPLY_RECEIVED", {
-        resourceType: "SupplyTransaction",
-        resourceId: String(txn.id),
-        detail: `Received ${quantity} of ${supply.name}`,
-        afterValue: txn
-      });
-      res.status(201).json(txn);
-    } catch (err) {
-      res.status(500).json({ message: "Failed to record supply receipt", error: err.message });
-    }
-  });
-  router2.post("/api/supplies/:id/send", isAuthenticated, async (req, res) => {
-    try {
-      const clientId = getClientId(req);
-      const supplyId = parseInt(req.params.id, 10);
-      if (isNaN(supplyId)) {
-        return res.status(400).json({ message: "Invalid supply ID" });
-      }
-      const { quantity, manufacturerName, relatedPoId, reference, notes } = req.body;
-      if (!quantity || quantity <= 0) {
-        return res.status(400).json({ message: "quantity must be a positive number" });
-      }
-      if (!manufacturerName) {
-        return res.status(400).json({ message: "manufacturerName is required" });
-      }
-      const [supply] = await db.select().from(supplies).where(and6(eq7(supplies.id, supplyId), eq7(supplies.clientId, clientId)));
-      if (!supply) {
-        return res.status(404).json({ message: "Supply not found" });
-      }
-      const user = req.user;
-      const txnDate = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
-      const [txn] = await db.insert(supplyTransactions).values({
-        clientId,
-        supplyId,
-        transactionType: "SENT_TO_MANUFACTURER",
-        quantity: -Math.abs(Math.round(quantity)),
-        transactionDate: txnDate,
-        manufacturerName,
-        relatedPoId: relatedPoId || null,
-        reference: reference || null,
-        notes: notes || null,
-        createdBy: user?.id ?? null
-      }).returning();
-      logAudit(req, "SUPPLY_SENT", {
-        resourceType: "SupplyTransaction",
-        resourceId: String(txn.id),
-        detail: `Sent ${quantity} of ${supply.name} to ${manufacturerName}`,
-        afterValue: txn
-      });
-      res.status(201).json(txn);
-    } catch (err) {
-      res.status(500).json({ message: "Failed to record supply dispatch", error: err.message });
-    }
-  });
-  router2.post("/api/supplies/:id/adjust", isAuthenticated, async (req, res) => {
-    try {
-      const clientId = getClientId(req);
-      const supplyId = parseInt(req.params.id, 10);
-      if (isNaN(supplyId)) {
-        return res.status(400).json({ message: "Invalid supply ID" });
-      }
-      const { newQuantity, reason, notes } = req.body;
-      if (newQuantity == null || newQuantity < 0) {
-        return res.status(400).json({ message: "newQuantity must be a non-negative number" });
-      }
-      if (!reason) {
-        return res.status(400).json({ message: "reason is required" });
-      }
-      if (!notes) {
-        return res.status(400).json({ message: "notes are required for adjustments" });
-      }
-      const [supply] = await db.select().from(supplies).where(and6(eq7(supplies.id, supplyId), eq7(supplies.clientId, clientId)));
-      if (!supply) {
-        return res.status(404).json({ message: "Supply not found" });
-      }
-      const currentStock = await getCurrentStock(clientId, supplyId);
-      const delta = Math.round(newQuantity) - currentStock;
-      if (delta === 0) {
-        return res.json({ message: "No adjustment needed \u2014 stock already at that level", noChange: true });
-      }
-      const user = req.user;
-      const txnDate = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
-      const [txn] = await db.insert(supplyTransactions).values({
-        clientId,
-        supplyId,
-        transactionType: "ADJUSTMENT",
-        quantity: delta,
-        transactionDate: txnDate,
-        reference: `Adjustment: ${currentStock} \u2192 ${Math.round(newQuantity)}`,
-        notes: `[${reason}] ${notes}`,
-        createdBy: user?.id ?? null
-      }).returning();
-      logAudit(req, "SUPPLY_ADJUSTMENT", {
-        resourceType: "SupplyTransaction",
-        resourceId: String(txn.id),
-        detail: `${reason}: ${supply.name} adjusted from ${currentStock} to ${Math.round(newQuantity)} (${delta > 0 ? "+" : ""}${delta}). ${notes}`,
-        beforeValue: { currentStock },
-        afterValue: { newQuantity: Math.round(newQuantity), delta }
-      });
-      res.json(txn);
-    } catch (err) {
-      res.status(500).json({ message: "Failed to create supply adjustment", error: err.message });
-    }
-  });
   router2.post(
     "/api/supplies/import/preview",
     isAuthenticated,
@@ -3646,6 +3785,7 @@ function registerSupplyRoutes(router2) {
             await db.insert(supplyTransactions).values({
               clientId,
               supplyId: item.matchedSupplyId,
+              location: "THH",
               transactionType: "ADJUSTMENT",
               quantity: Math.round(item.totalStock),
               transactionDate: txnDate,
@@ -3671,6 +3811,7 @@ function registerSupplyRoutes(router2) {
             await db.insert(supplyTransactions).values({
               clientId,
               supplyId: newSupply.id,
+              location: "THH",
               transactionType: "RECEIVED",
               quantity: Math.round(item.totalStock),
               transactionDate: txnDate,
@@ -3760,194 +3901,6 @@ function registerSupplyRoutes(router2) {
 import { Router } from "express";
 import { z as z4 } from "zod";
 
-// shared/calculations/movements.ts
-function common(input) {
-  const errors = [];
-  if (!(typeof input.quantity === "number") || !Number.isFinite(input.quantity)) {
-    errors.push("quantity must be a number");
-  } else if (input.quantity <= 0) {
-    errors.push("quantity must be positive (direction is implied by movement type)");
-  }
-  if (!input.date || !/^\d{4}-\d{2}-\d{2}$/.test(input.date)) {
-    errors.push("date must be yyyy-mm-dd");
-  }
-  return errors;
-}
-function requireText(value, field) {
-  return typeof value === "string" && value.trim().length > 0 ? [] : [`${field} is required`];
-}
-function validateMovement(input) {
-  const errors = [];
-  errors.push(...common(input));
-  if (input.subjectKind === "product") {
-    errors.push(...requireText(input.skuCode, "skuCode"));
-    if (input.type === "TRANSFER") {
-      errors.push(...requireText(input.fromLocation, "fromLocation"));
-      errors.push(...requireText(input.toLocation, "toLocation"));
-      if (input.fromLocation === input.toLocation) errors.push("fromLocation and toLocation must differ");
-    } else {
-      errors.push(...requireText(input.location, "location"));
-    }
-    if (input.type === "DELIVERY_RECEIVED") {
-      errors.push(...requireText(input.batchNumber, "batchNumber"));
-      errors.push(...requireText(input.manufactureDate, "manufactureDate"));
-      errors.push(...requireText(input.expiryDate, "expiryDate"));
-    }
-    if (input.type === "ADJUSTMENT_IN" || input.type === "ADJUSTMENT_OUT") {
-      errors.push(...requireText(input.reasonText, "reasonText"));
-    }
-  } else {
-    if (!Number.isInteger(input.supplyId) || input.supplyId <= 0) {
-      errors.push("supplyId must be a positive integer");
-    }
-    if (input.type === "ADJUSTMENT_IN" || input.type === "ADJUSTMENT_OUT") {
-      errors.push(...requireText(input.reasonText, "reasonText"));
-    }
-  }
-  return errors;
-}
-function movementToLedger(input) {
-  const effect = { stockRows: [], supplyRows: [], batchRow: null };
-  if (input.subjectKind === "product") {
-    switch (input.type) {
-      case "OPENING_BALANCE":
-        effect.stockRows.push({
-          skuCode: input.skuCode,
-          stockLocation: input.location,
-          transactionType: "OPENING_BALANCE",
-          quantity: input.quantity,
-          transactionDate: input.date,
-          reference: "opening balance"
-        });
-        break;
-      case "DELIVERY_RECEIVED":
-        effect.batchRow = {
-          skuCode: input.skuCode,
-          sizeVariant: input.sizeVariant ?? "",
-          stockLocation: input.location,
-          batchNumber: input.batchNumber,
-          manufactureDate: input.manufactureDate,
-          expiryDate: input.expiryDate,
-          initialQuantity: input.quantity,
-          receivedDate: input.date,
-          deliveryNoteRef: input.deliveryNoteRef ?? null
-        };
-        effect.stockRows.push({
-          skuCode: input.skuCode,
-          stockLocation: input.location,
-          transactionType: "DELIVERY_IN",
-          quantity: input.quantity,
-          transactionDate: input.date,
-          reference: input.deliveryNoteRef ?? null
-        });
-        break;
-      case "ADJUSTMENT_IN":
-        effect.stockRows.push({
-          skuCode: input.skuCode,
-          stockLocation: input.location,
-          transactionType: "ADJUSTMENT",
-          quantity: input.quantity,
-          transactionDate: input.date,
-          notes: input.reasonText
-        });
-        break;
-      case "ADJUSTMENT_OUT":
-        effect.stockRows.push({
-          skuCode: input.skuCode,
-          stockLocation: input.location,
-          transactionType: "ADJUSTMENT",
-          quantity: -input.quantity,
-          transactionDate: input.date,
-          notes: input.reasonText
-        });
-        break;
-      case "TRANSFER": {
-        const from = input.fromLocation;
-        const to = input.toLocation;
-        const ttype = `TRANSFER_${from}_TO_${to}`;
-        effect.stockRows.push({
-          skuCode: input.skuCode,
-          stockLocation: from,
-          transactionType: ttype,
-          quantity: -input.quantity,
-          transactionDate: input.date
-        });
-        effect.stockRows.push({
-          skuCode: input.skuCode,
-          stockLocation: to,
-          transactionType: ttype,
-          quantity: input.quantity,
-          transactionDate: input.date
-        });
-        break;
-      }
-      case "SALES_OUT":
-        effect.stockRows.push({
-          skuCode: input.skuCode,
-          stockLocation: input.location,
-          transactionType: "SALES_OUT",
-          quantity: -input.quantity,
-          transactionDate: input.date,
-          reference: input.invoiceRef ?? null,
-          channel: input.channel ?? null,
-          notes: input.reasonText ?? null
-        });
-        break;
-    }
-  } else {
-    switch (input.type) {
-      case "OPENING_BALANCE":
-        effect.supplyRows.push({
-          supplyId: input.supplyId,
-          transactionType: "RECEIVED",
-          quantity: input.quantity,
-          transactionDate: input.date,
-          notes: "opening balance"
-        });
-        break;
-      case "DELIVERY_RECEIVED":
-        effect.supplyRows.push({
-          supplyId: input.supplyId,
-          transactionType: "RECEIVED",
-          quantity: input.quantity,
-          transactionDate: input.date,
-          reference: input.reference ?? null
-        });
-        break;
-      case "ADJUSTMENT_IN":
-        effect.supplyRows.push({
-          supplyId: input.supplyId,
-          transactionType: "ADJUSTMENT",
-          quantity: input.quantity,
-          transactionDate: input.date,
-          notes: input.reasonText
-        });
-        break;
-      case "ADJUSTMENT_OUT":
-        effect.supplyRows.push({
-          supplyId: input.supplyId,
-          transactionType: "ADJUSTMENT",
-          quantity: -input.quantity,
-          transactionDate: input.date,
-          notes: input.reasonText
-        });
-        break;
-      case "SUPPLY_SENT_TO_MANUFACTURER":
-        effect.supplyRows.push({
-          supplyId: input.supplyId,
-          transactionType: "SENT_TO_MANUFACTURER",
-          quantity: -input.quantity,
-          transactionDate: input.date,
-          manufacturerName: input.manufacturerName ?? null,
-          reference: input.reference ?? null,
-          relatedPoId: input.relatedPoId ?? null
-        });
-        break;
-    }
-  }
-  return effect;
-}
-
 // server/movements/storage.ts
 function periodFromDate(iso) {
   const [y, m] = iso.split("-").map((n) => parseInt(n, 10));
@@ -4000,6 +3953,7 @@ async function recordMovement(clientId, userId, input) {
     const [inserted] = await db.insert(supplyTransactions).values({
       clientId,
       supplyId: row.supplyId,
+      location: row.location,
       transactionType: row.transactionType,
       quantity: row.quantity,
       transactionDate: row.transactionDate,
@@ -4067,26 +4021,38 @@ var productMovement = z4.discriminatedUnion("type", [
     reasonText: z4.string().max(500).optional()
   })
 ]);
+var supplyLocation = z4.enum(SUPPLY_LOCATIONS);
 var supplyMovement = z4.discriminatedUnion("type", [
-  z4.object({ type: z4.literal("OPENING_BALANCE"), ...baseSupply }),
+  z4.object({ type: z4.literal("OPENING_BALANCE"), ...baseSupply, location: supplyLocation }),
   z4.object({
     type: z4.literal("DELIVERY_RECEIVED"),
     ...baseSupply,
+    location: supplyLocation,
     reference: z4.string().max(255).optional()
   }),
   z4.object({
     type: z4.literal("ADJUSTMENT_IN"),
     ...baseSupply,
+    location: supplyLocation,
     reasonText: z4.string().min(1).max(500)
   }),
   z4.object({
     type: z4.literal("ADJUSTMENT_OUT"),
     ...baseSupply,
+    location: supplyLocation,
     reasonText: z4.string().min(1).max(500)
+  }),
+  z4.object({
+    type: z4.literal("SUPPLY_TRANSFER"),
+    ...baseSupply,
+    fromLocation: supplyLocation,
+    toLocation: supplyLocation
   }),
   z4.object({
     type: z4.literal("SUPPLY_SENT_TO_MANUFACTURER"),
     ...baseSupply,
+    fromLocation: supplyLocation,
+    toLocation: supplyLocation,
     manufacturerName: z4.string().max(255).optional(),
     reference: z4.string().max(255).optional(),
     relatedPoId: z4.number().int().positive().optional()
